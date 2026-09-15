@@ -708,33 +708,34 @@ impl Decrypt {
             .collect();
         self.revealed = target;
 
-        if !new_blocks.is_empty() {
-            for wallpaper in wallpapers.iter() {
-                let mut wallpaper = wallpaper.borrow_mut();
-                let dim = wallpaper.get_dimensions();
-                let width = dim.0 as usize;
-                let height = dim.1 as usize;
-                let channels = pixel_format.channels() as usize;
-                let stride = width * channels;
-                let cols = self.cols;
-                let block_size = self.block_size;
+        // Always touch the canvas, even with no new blocks: skipping the draw
+        // lets the buffer pool drain (all buffers released) and the next
+        // attach_buffer_and_damage_surface panics on an empty pool.
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let dim = wallpaper.get_dimensions();
+            let width = dim.0 as usize;
+            let height = dim.1 as usize;
+            let channels = pixel_format.channels() as usize;
+            let stride = width * channels;
+            let cols = self.cols;
+            let block_size = self.block_size;
 
-                wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
-                    for &block in &new_blocks {
-                        let row = block / cols;
-                        let col = block % cols;
-                        let x0 = col * block_size;
-                        let y0 = row * block_size;
-                        let x1 = (x0 + block_size).min(width);
-                        let y1 = (y0 + block_size).min(height);
-                        for y in y0..y1 {
-                            let off = y * stride + x0 * channels;
-                            let len = (x1 - x0) * channels;
-                            canvas[off..off + len].copy_from_slice(&img[off..off + len]);
-                        }
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for &block in &new_blocks {
+                    let row = block / cols;
+                    let col = block % cols;
+                    let x0 = col * block_size;
+                    let y0 = row * block_size;
+                    let x1 = (x0 + block_size).min(width);
+                    let y1 = (y0 + block_size).min(height);
+                    for y in y0..y1 {
+                        let off = y * stride + x0 * channels;
+                        let len = (x1 - x0) * channels;
+                        canvas[off..off + len].copy_from_slice(&img[off..off + len]);
                     }
-                });
-            }
+                }
+            });
         }
 
         t >= 1.0
@@ -789,17 +790,17 @@ impl Dissolve {
             .collect();
         self.revealed = target;
 
-        if !new.is_empty() {
-            for wallpaper in wallpapers.iter() {
-                let mut wallpaper = wallpaper.borrow_mut();
-                let channels = pixel_format.channels() as usize;
-                wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
-                    for &pixel in &new {
-                        let off = pixel * channels;
-                        canvas[off..off + channels].copy_from_slice(&img[off..off + channels]);
-                    }
-                });
-            }
+        // Always touch the canvas (see Decrypt): an empty reveal batch must not
+        // skip the draw, or the drained pool crashes the next attach.
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let channels = pixel_format.channels() as usize;
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for &pixel in &new {
+                    let off = pixel * channels;
+                    canvas[off..off + channels].copy_from_slice(&img[off..off + channels]);
+                }
+            });
         }
 
         t >= 1.0

@@ -114,6 +114,10 @@ impl BumpPool {
                     buffer.destroy(backend);
                 }
                 self.mmap.unmap();
+                // The pool is empty now: forget the freed buffer index so the
+                // next get_drawable/grow starts clean (a stale index would be
+                // out of bounds for the buffer vector and the mapping).
+                self.last_used_buffer = 0;
             }
             true
         } else if let Some(i) = self.dead_buffers.iter().position(|b| *b == buffer_id) {
