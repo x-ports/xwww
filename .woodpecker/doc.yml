@@ -1,0 +1,13 @@
+when:
+  - event: pull_request
+    path: 'doc/*.scd'
+  - event: push
+    branch: main
+    path: 'doc/*.scd'
+
+steps:
+  cargo-deny:
+    image: alpine
+    commands:
+      - apk add --no-cache scdoc
+      - ./doc/gen.sh
