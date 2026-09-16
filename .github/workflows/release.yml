@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-24.04
+    outputs:
+      value: ${{ steps.resolve.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: resolve
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [ -z "$version" ]; then
+            echo "::error::Could not read the version from Cargo.toml"
+            exit 1
+          fi
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version ($version)"
+              exit 1
+            fi
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config nasm clang libclang-dev \
+            liblz4-dev libwayland-dev libwayland-bin wayland-protocols scdoc
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-
+
+      - name: Build release binaries
+        run: cargo build --release --locked --features video-static
+
+      - name: Generate man pages
+        run: ./doc/gen.sh
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="${{ needs.version.outputs.value }}"
+          target="${{ matrix.target }}"
+          name="xwww-v${version}-${target}"
+          mkdir -p "dist/$name/completions" "dist/$name/man" "dist/$name/contrib"
+          cp target/release/xwww target/release/xwww-daemon "dist/$name/"
+          cp completions/* "dist/$name/completions/"
+          cp doc/generated/*.1 "dist/$name/man/"
+          cp contrib/systemd/xwww-daemon.service "dist/$name/contrib/"
+          cp LICENSE README.md "dist/$name/"
+          (cd dist && tar -czf "$name.tar.gz" "$name" && rm -rf "$name" && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xwww-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="v${{ needs.version.outputs.value }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" \
+              --target "$GITHUB_SHA" \
+              --title "xwww $tag" \
+              --generate-notes \
+              dist/*
+          fi

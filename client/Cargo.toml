@@ -45,6 +45,7 @@ all-formats = ["avif", "jxl", "video"]
 avif = ["image/avif-native"]
 jxl = ["dep:jxl-oxide"]
 video = ["dep:ffmpeg-next"]
+video-static = ["video", "ffmpeg-next/build"]
 
 [build-dependencies]
 clap = { version = "4.6", features = ["derive", "env"] }

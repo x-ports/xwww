@@ -5,6 +5,7 @@ The `client` crate exposes build-time feature flags:
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `video` | yes | Video wallpaper support via `ffmpeg-next` (requires FFmpeg dev libraries). |
+| `video-static` | no | Like `video`, but compiles and statically links FFmpeg from source (no runtime FFmpeg dependency). |
 | `avif`  | no | AVIF decoding via `image/avif-native` (requires `dav1d`). |
 | `jxl`   | no | JPEG-XL decoding via `jxl-oxide`. |
 | `all-formats` | no | Enables `avif`, `jxl` and `video` together. |
@@ -23,4 +24,6 @@ cargo build --release --no-default-features
 ```
 
 Note: the FFmpeg dependency (`ffmpeg-sys-next`) generates C bindings at build time, so the `video`
-feature additionally requires `libclang`/bindgen and the FFmpeg headers to be present.
+feature additionally requires `libclang`/bindgen and the FFmpeg headers to be present. The
+`video-static` feature instead fetches and builds FFmpeg from source and links it statically, so no
+FFmpeg installation is needed at build or runtime (this is what the release binaries use).
