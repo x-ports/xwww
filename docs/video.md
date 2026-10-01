@@ -41,4 +41,4 @@ frame by frame.
   GIFs).
 - Frame timing is derived from the stream's average frame rate; variable-frame-rate content may
   drift slightly.
-- `--blur` and `--dim` are not applied to video frames.
+- `--blur`, `--dim` and `--map-palette` are not applied to video frames.

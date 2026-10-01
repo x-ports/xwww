@@ -60,6 +60,75 @@ pub fn dim(bytes: &mut [u8], channels: u8, factor: f32) {
     }
 }
 
+/// Recolors an interleaved pixel buffer with a gradient map built from palette stops.
+///
+/// Every pixel's luminance is mapped onto the gradient defined by `stops` (which must be sorted
+/// by ascending luminance, as produced by `ScenePalette::gradient_stops`) and blended with the
+/// original color according to `strength` (`0.0` leaves the image untouched, `1.0` fully
+/// replaces it). The alpha channel, when present, is never modified.
+///
+/// # Arguments
+///
+/// * `bytes` - mutable interleaved pixel buffer (`width * height * channels` bytes long).
+/// * `channels` - number of bytes per pixel (3 for RGB, 4 for ARGB).
+/// * `stops` - gradient stops as `[r, g, b]`, sorted by ascending luminance, length >= 1.
+/// * `strength` - blend factor in `[0.0, 1.0]`.
+pub fn palette_map(bytes: &mut [u8], channels: u8, stops: &[[u8; 3]], strength: f32) {
+    let channels = channels as usize;
+    let strength = strength.clamp(0.0, 1.0);
+
+    if stops.is_empty() || strength <= 0.0 || channels < 3 {
+        return;
+    }
+    debug_assert_eq!(bytes.len() % channels, 0);
+
+    let lumas: Vec<f32> = stops.iter().map(|stop| luma(*stop)).collect();
+    let first = lumas[0];
+    let last = *lumas.last().unwrap();
+
+    for pixel in bytes.chunks_exact_mut(channels) {
+        let original = [pixel[0], pixel[1], pixel[2]];
+        let mapped = sample_gradient(stops, &lumas, first, last, luma(original));
+
+        for channel in 0..3 {
+            pixel[channel] = mix(original[channel], mapped[channel], strength);
+        }
+    }
+}
+
+/// Rec. 709 relative luminance, in `[0.0, 255.0]`.
+fn luma(pixel: [u8; 3]) -> f32 {
+    f32::from(pixel[0]) * 0.2126 + f32::from(pixel[1]) * 0.7152 + f32::from(pixel[2]) * 0.0722
+}
+
+/// Samples the gradient at the given luminance. `lumas` must be sorted and strictly increasing.
+fn sample_gradient(stops: &[[u8; 3]], lumas: &[f32], first: f32, last: f32, value: f32) -> [u8; 3] {
+    if value <= first {
+        return stops[0];
+    }
+    if value >= last {
+        return stops[stops.len() - 1];
+    }
+
+    let index = lumas
+        .partition_point(|&stop| stop <= value)
+        .saturating_sub(1)
+        .min(stops.len() - 2);
+    let (low, high) = (stops[index], stops[index + 1]);
+    let (low_luma, high_luma) = (lumas[index], lumas[index + 1]);
+    let t = ((value - low_luma) / (high_luma - low_luma)).clamp(0.0, 1.0);
+
+    [
+        mix(low[0], high[0], t),
+        mix(low[1], high[1], t),
+        mix(low[2], high[2], t),
+    ]
+}
+
+fn mix(from: u8, to: u8, t: f32) -> u8 {
+    (f32::from(from) + (f32::from(to) - f32::from(from)) * t).round() as u8
+}
+
 /// Blurs every row of `src` into `dst` using a clamped sliding window of size `2 * radius + 1`.
 fn horizontal_pass(
     src: &[u8],
@@ -127,5 +196,74 @@ fn vertical_pass(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BLACK_WHITE: &[[u8; 3]] = &[[0, 0, 0], [255, 255, 255]];
+
+    #[test]
+    fn palette_map_preserves_neutral_gray_with_black_white_stops() {
+        let mut pixel = [128u8, 128, 128];
+        palette_map(&mut pixel, 3, BLACK_WHITE, 1.0);
+        assert_eq!(pixel, [128, 128, 128]);
+    }
+
+    #[test]
+    fn palette_map_clamps_at_gradient_ends() {
+        let mut pixels = [0u8, 0, 0, 255, 255, 255];
+        palette_map(&mut pixels, 3, BLACK_WHITE, 1.0);
+        assert_eq!(&pixels[0..3], &[0, 0, 0]);
+        assert_eq!(&pixels[3..6], &[255, 255, 255]);
+    }
+
+    #[test]
+    fn palette_map_preserves_alpha() {
+        let mut pixel = [10u8, 20, 30, 42];
+        palette_map(&mut pixel, 4, BLACK_WHITE, 1.0);
+        assert_eq!(pixel[3], 42);
+    }
+
+    #[test]
+    fn palette_map_strength_zero_is_a_no_op() {
+        let mut pixel = [10u8, 20, 30, 42];
+        palette_map(&mut pixel, 4, BLACK_WHITE, 0.0);
+        assert_eq!(pixel, [10, 20, 30, 42]);
+    }
+
+    #[test]
+    fn palette_map_strength_half_blends_towards_gradient() {
+        let mut pixel = [100u8, 100, 100];
+        palette_map(&mut pixel, 3, BLACK_WHITE, 0.5);
+        assert_eq!(pixel, [100, 100, 100]);
+        let mut pixel = [0u8, 0, 0, 255];
+        palette_map(&mut pixel, 4, &[[255, 255, 255]], 0.5);
+        assert_eq!(pixel, [128, 128, 128, 255]);
+    }
+
+    #[test]
+    fn palette_map_single_stop_fills_with_it() {
+        let mut pixels = [0u8, 0, 0, 12, 34, 56];
+        palette_map(&mut pixels, 3, &[[10, 20, 30]], 1.0);
+        assert_eq!(pixels, [10, 20, 30, 10, 20, 30]);
+    }
+
+    #[test]
+    fn palette_map_empty_stops_is_a_no_op() {
+        let mut pixels = [10u8, 20, 30];
+        palette_map(&mut pixels, 3, &[], 1.0);
+        assert_eq!(pixels, [10, 20, 30]);
+    }
+
+    #[test]
+    fn palette_map_interpolates_between_stops() {
+        let stops = [[0u8, 0, 0], [255, 0, 0]];
+        let mut pixels = [128u8, 128, 128];
+        palette_map(&mut pixels, 3, &stops, 1.0);
+        assert!(pixels[0] > pixels[1]);
+        assert_eq!(pixels[1], pixels[2]);
     }
 }
