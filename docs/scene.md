@@ -65,6 +65,11 @@ xwww scene run    scene.js --fps 10 --palette equisdots       # run until interr
 | `--asset <PATH>` | scene's directory | `render`, `run` | Extra directory (or file) whose images the scene may load with `canvas.image`. Repeatable. |
 | `-o, --outputs` | all | `run` | Comma-separated list of outputs. |
 | `-n, --namespace` | `""` | `run` | Daemon namespace. |
+| `--transition-type` | `none` | `run` | Entry transition for the first frame: the same set as `xwww img` (`simple`, `fade`, `wipe`, `grow`, `outer`, `wave`, `glitch`, `decrypt`, `dissolve`, `clock`, `zoom`, `left/right/top/bottom/center`, `random`). |
+| `--transition-duration` | `1.0` | `run` | Seconds the entry transition takes; the loop waits for it before sending instant frames. |
+| `--transition-fps` | `144` | `run` | Frame rate of the entry transition. |
+| `--transition-step` | `255` | `run` | Step for `simple` (255 = instant). |
+| `--transition-pos` / `--transition-angle` / `--transition-bezier` / `--transition-wave` | as `img` | `run` | Shape parameters of the entry transition. |
 
 `xwww scene` is declared as a non-standard command and dispatched before the IPC flow, like
 `Palette`/`Slideshow`/`Screenshot` in the client. Builds without the `scene` feature still show the
@@ -122,12 +127,17 @@ Backed by tiny-skia. Colors accept `#rgb`, `#rrggbb`, `#rrggbbaa` or `[r,g,b(,a)
 | `canvas.linear_gradient(x0, y0, x1, y1, colors)` | `colors` is an array; stops are evenly spaced. |
 | `canvas.radial_gradient(cx, cy, r, colors)` | |
 | `canvas.image(path, x, y, w, h)` | Draws an image asset at full quality, scaled into the box. |
+| `canvas.image_tinted(path, x, y, w, h, color)` | Like `canvas.image`, but replaces the image colors with `color`, keeping its alpha. For stencils: a cutout painted with a palette color. |
 | `canvas.remap(x, y, w, h, colors, strength)` | Recolors **only that rectangle**: luminance to the gradient of `colors`, blended by `strength`. The position-specific version of `--map-palette`. |
+| `canvas.text(str, x, y, size, color, options)` | Draws text with its baseline at `x, y` using system fonts. `options`: `{ family, anchor, bold }` — `anchor` is `start`/`middle`/`end`. Honors the transform stack and `canvas.alpha`. |
 | `canvas.push()` / `canvas.pop()` | Transform stack. |
 | `canvas.translate(x, y)` / `rotate(deg)` / `scale(x, y)` | Transform stack. |
 | `log(...values)` | Writes to stderr with a `[scene]` prefix. |
 
-Text rendering is not implemented yet (needs font shaping; see Open questions).
+Text is rasterized through `resvg`/`usvg` with the system font database (loaded once per
+process); the generic `sans-serif`/`monospace` families are mapped to the first available
+family from a built-in preference list. Font shaping per call is not free: if a scene draws
+many strings, do it once per palette/context change rather than on every frame.
 
 The runtime composites the pixmap over the palette background and converts it to the output's
 `PixelFormat`, then sends it as a normal `ipc::ImgSend` with `no_cache` and an instant transition
@@ -278,7 +288,12 @@ the lock screen keeps the previous cached frame. Recommended integration (davinc
 
 Each rendered frame is sent as a normal `RequestSend::Img` (`common/src/ipc/mod.rs:196`) with:
 
-- `transition = None` (step 255, instant) for every frame after the first,
+- change-driven delivery: the run loop only pushes a frame when the scene actually painted
+  something since the previous one (`Canvas::take_dirty`), so static scenes cost almost nothing
+  between palette changes,
+- the first frame carries the requested entry transition (`--transition-type`, instant by
+  default) and the loop delays the next send by `--transition-duration` so the effect is not cut
+  off; every frame after that is instant (`transition = None`, step 255),
 - `no_cache = true`,
 - a synthetic path `scene:<sha1(script)>` so the daemon's `query` shows something meaningful and
   the on-disk cache is never touched,
@@ -444,10 +459,12 @@ Compact MADR-style records. Promote each to `docs/adr/NNNN-*.md` once accepted.
 3. **Multi-output.** One process per output (simplest, matches `--outputs`) vs one process
    rendering per-output frames. F1: per-output rendering from a single process, one scene
    instance per output.
-4. **Text rendering.** tiny-skia has no text; enabling `resvg` text support pulls in `fontdb` and
-   shaping. Defer `canvas.text` to F2 or expose it only when the feature is enabled.
-5. **Default fps and transition on start.** Recommended: 10 fps, first frame uses the requested
-   transition, subsequent frames instant.
+4. **Resolved — text rendering.** `canvas.text` landed in F1 on top of the already-linked
+   `resvg`/`usvg` (system fonts via `fontdb`, loaded once per process). It is available in every
+   `scene` build; there is no separate flag.
+5. **Resolved — default fps and transition on start.** `run` accepts the `img` transition flags;
+   the first frame uses the requested transition and the loop waits for `--transition-duration`
+   before switching to instant frames. davincix passes a resolved (or random) entry transition.
 6. **Lifecycle.** Recommend a systemd user unit for `xwww scene run`; document interaction with
    monitor hotplug (the daemon reports outputs via `query`, the runtime re-renders per output).
 
@@ -460,7 +477,7 @@ Compact MADR-style records. Promote each to `docs/adr/NNNN-*.md` once accepted.
 | `client/src/palette_source.rs` | `ScenePalette`, specs (`xwww`, `equisdots`, `file`, `command`), parsing. |
 | `client/src/scene/mod.rs` | `SceneEngine`, frame lifecycle, integration tests. |
 | `client/src/scene/runtime.rs` | QuickJS context, bindings, limits, timeout, error mapping. |
-| `client/src/scene/canvas.rs` | tiny-skia wrapper (shapes, paths, gradients, transforms, assets, region remap, output). |
+| `client/src/scene/canvas.rs` | tiny-skia wrapper (shapes, paths, gradients, transforms, assets, region remap, text via resvg, output). |
 | `client/src/scene/providers.rs` | `PaletteProvider` (1 s polling) and `now_ms()`. |
 | `client/src/scene/providers/hyprland.rs` | Planned F2: `socket2.sock` reader. |
 | `client/Cargo.toml` | `scene` feature: `rquickjs` + `tiny-skia` (off by default). |

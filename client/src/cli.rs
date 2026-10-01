@@ -1041,6 +1041,99 @@ pub struct SceneRun {
     /// value you use here.
     #[arg(short, long, default_value = "")]
     pub namespace: Vec<String>,
+
+    /// Entry transition for the first frame (same set as `xwww img --transition-type`).
+    ///
+    /// The first frame is sent with this transition, then the render loop waits for
+    /// `--transition-duration` before sending instant frames, so the effect is not cut off.
+    /// Default `none` starts instantly.
+    #[arg(long, env = "XWWW_TRANSITION", default_value = "none")]
+    pub transition_type: TransitionType,
+
+    /// How fast the transition approaches the new frame (`simple` transition only).
+    #[arg(long, env = "XWWW_TRANSITION_STEP", default_value = "255")]
+    pub transition_step: std::num::NonZeroU8,
+
+    /// How long the entry transition takes to complete, in seconds.
+    ///
+    /// The scene does not send further frames until it finishes. Ignored by `simple`.
+    #[arg(long, env = "XWWW_TRANSITION_DURATION", default_value = "1.0")]
+    pub transition_duration: f32,
+
+    /// Frame rate for the entry transition.
+    #[arg(long, env = "XWWW_TRANSITION_FPS", default_value = "144")]
+    pub transition_fps: u16,
+
+    /// Angle for the `wipe`/`wave` transitions, in degrees.
+    #[arg(long, env = "XWWW_TRANSITION_ANGLE", default_value = "45")]
+    pub transition_angle: f64,
+
+    /// Center used by `grow`/`outer`/`zoom`.
+    #[arg(long, env = "XWWW_TRANSITION_POS", default_value = "center", value_parser = parse_coords)]
+    pub transition_pos: CliPosition,
+
+    /// Bezier curve for the `fade`/`grow`/`outer` transitions.
+    #[arg(long, env = "XWWW_TRANSITION_BEZIER", default_value = ".54,0,.34,.99", value_parser = parse_bezier)]
+    pub transition_bezier: (f32, f32, f32, f32),
+
+    /// Wave size for the `wave` transition.
+    #[arg(long, env = "XWWW_TRANSITION_WAVE", default_value = "20,20", value_parser = parse_wave)]
+    pub transition_wave: (f32, f32),
+
+    /// Inverts the y position sent in `--transition-pos`.
+    #[arg(long, env = "INVERT_Y", default_value = "false")]
+    pub invert_y: bool,
+}
+
+/// The transition options shared by `img` and `scene run`; [`Img::transition_args`] and
+/// [`SceneRun::transition_args`] normalize them for [`crate::imgproc::make_transition`].
+#[derive(Clone)]
+pub struct TransitionArgs {
+    pub transition_type: TransitionType,
+    pub transition_step: std::num::NonZeroU8,
+    pub transition_duration: f32,
+    pub transition_fps: u16,
+    pub transition_angle: f64,
+    pub transition_pos: CliPosition,
+    pub transition_bezier: (f32, f32, f32, f32),
+    pub transition_wave: (f32, f32),
+    pub invert_y: bool,
+}
+
+impl Img {
+    /// View of this command's transition flags for the shared transition builder.
+    #[must_use]
+    pub fn transition_args(&self) -> TransitionArgs {
+        TransitionArgs {
+            transition_type: self.transition_type.clone(),
+            transition_step: self.transition_step,
+            transition_duration: self.transition_duration,
+            transition_fps: self.transition_fps,
+            transition_angle: self.transition_angle,
+            transition_pos: self.transition_pos.clone(),
+            transition_bezier: self.transition_bezier,
+            transition_wave: self.transition_wave,
+            invert_y: self.invert_y,
+        }
+    }
+}
+
+impl SceneRun {
+    /// View of this command's entry-transition flags for the shared transition builder.
+    #[must_use]
+    pub fn transition_args(&self) -> TransitionArgs {
+        TransitionArgs {
+            transition_type: self.transition_type.clone(),
+            transition_step: self.transition_step,
+            transition_duration: self.transition_duration,
+            transition_fps: self.transition_fps,
+            transition_angle: self.transition_angle,
+            transition_pos: self.transition_pos.clone(),
+            transition_bezier: self.transition_bezier,
+            transition_wave: self.transition_wave,
+            invert_y: self.invert_y,
+        }
+    }
 }
 
 #[cfg(test)]

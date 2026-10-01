@@ -51,7 +51,10 @@ impl SceneEngine {
         palette_spec: Option<&str>,
         assets: &[PathBuf],
     ) -> Result<Self, String> {
-        let script = std::fs::read_to_string(script_path)
+        let script_path = script_path.canonicalize().map_err(|e| {
+            format!("failed to resolve scene {}: {e}", script_path.display())
+        })?;
+        let script = std::fs::read_to_string(&script_path)
             .map_err(|e| format!("failed to read scene {}: {e}", script_path.display()))?;
 
         let mut allowed = Vec::new();
@@ -86,6 +89,12 @@ impl SceneEngine {
 
     pub fn with_canvas<R>(&self, f: impl FnOnce(&Canvas) -> R) -> R {
         self.runtime.with_canvas(f)
+    }
+
+    /// Whether the scene painted something since the last call; used to avoid
+    /// re-sending identical frames to the daemon.
+    pub fn take_dirty(&self) -> bool {
+        self.runtime.take_dirty()
     }
 
     #[must_use]

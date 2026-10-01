@@ -393,7 +393,7 @@ pub enum TransitionType {
     Zoom = 11,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Transition {
     pub transition_type: TransitionType,
     pub duration: f32,

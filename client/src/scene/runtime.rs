@@ -100,6 +100,10 @@ const PRELUDE: &str = r##"
             raw.radial_gradient(cx, cy, r, flatten(colors));
         },
         image(path, x, y, w, h) { raw.image(path, x, y, w, h); },
+        image_tinted(path, x, y, w, h, color) {
+            const [r, g, b, a] = rgba(color === undefined ? "#ffffff" : color);
+            raw.image_tinted(path, x, y, w, h, { color: r * 16777216 + g * 65536 + b * 256 + a });
+        },
         remap(x, y, w, h, colors, strength) {
             raw.remap(x, y, w, h, flatten(colors), strength === undefined ? 1 : strength);
         },
@@ -108,6 +112,12 @@ const PRELUDE: &str = r##"
         translate(x, y) { raw.translate(x, y); },
         rotate(degrees) { raw.rotate(degrees); },
         scale(x, y) { raw.scale(x, y); },
+        text(str, x, y, size, color, options) {
+            const [r, g, b, a] = rgba(color === undefined ? "#ffffff" : color);
+            const opts = options || {};
+            const packed = r * 16777216 + g * 65536 + b * 256 + a;
+            raw.text(String(str), x, y, size, packed, opts);
+        },
     });
 
     globalThis.log = (...args) => raw.log(args.map(String).join(" "));
@@ -251,6 +261,11 @@ impl SceneRuntime {
 
     pub fn with_canvas<R>(&self, f: impl FnOnce(&Canvas) -> R) -> R {
         f(&self.canvas.borrow())
+    }
+
+    /// Whether the last frame (or an earlier one) painted anything not yet sent.
+    pub fn take_dirty(&self) -> bool {
+        self.canvas.borrow_mut().take_dirty()
     }
 }
 
@@ -560,6 +575,35 @@ fn bind_canvas(ctx: &Ctx<'_>, canvas: Rc<RefCell<Canvas>>) -> rquickjs::Result<(
     {
         let cell = canvas.clone();
         raw.set(
+            "image_tinted",
+            Function::new(
+                ctx.clone(),
+                move |path: String,
+                      x: f64,
+                      y: f64,
+                      w: f64,
+                      h: f64,
+                      options: Object|
+                      -> Result<(), rquickjs::Error> {
+                    let packed = options.get::<_, Option<f64>>("color")?.unwrap_or(0xffff_ffff_u32 as f64) as u32;
+                    let color = [
+                        (packed >> 24) as u8,
+                        (packed >> 16) as u8,
+                        (packed >> 8) as u8,
+                        packed as u8,
+                    ];
+                    cell.borrow_mut()
+                        .draw_image_tinted(&path, x as f32, y as f32, w as f32, h as f32, color)
+                        .map_err(|message| {
+                            rquickjs::Error::new_from_js_message("canvas", "image_tinted", message)
+                        })
+                },
+            )?,
+        )?;
+    }
+    {
+        let cell = canvas.clone();
+        raw.set(
             "remap",
             Function::new(
                 ctx.clone(),
@@ -626,6 +670,51 @@ fn bind_canvas(ctx: &Ctx<'_>, canvas: Rc<RefCell<Canvas>>) -> rquickjs::Result<(
             Function::new(ctx.clone(), move |x: f64, y: f64| {
                 cell.borrow_mut().scale(x as f32, y as f32);
             })?,
+        )?;
+    }
+    {
+        let cell = canvas.clone();
+        raw.set(
+            "text",
+            Function::new(
+                ctx.clone(),
+                move |text: String,
+                      x: f64,
+                      y: f64,
+                      size: f64,
+                      packed: f64,
+                      options: Object|
+                      -> Result<(), rquickjs::Error> {
+                    let packed = packed as u32;
+                    let color = [
+                        (packed >> 24) as u8,
+                        (packed >> 16) as u8,
+                        (packed >> 8) as u8,
+                        packed as u8,
+                    ];
+                    let family = options
+                        .get::<_, Option<String>>("family")?
+                        .unwrap_or_else(|| "sans-serif".into());
+                    let anchor = options
+                        .get::<_, Option<String>>("anchor")?
+                        .unwrap_or_else(|| "start".into());
+                    let bold = options.get::<_, Option<bool>>("bold")?.unwrap_or(false);
+                    cell.borrow_mut()
+                        .text(
+                            &text,
+                            x as f32,
+                            y as f32,
+                            size as f32,
+                            color,
+                            &family,
+                            &anchor,
+                            bold,
+                        )
+                        .map_err(|message| {
+                            rquickjs::Error::new_from_js_message("canvas", "text", message)
+                        })
+                },
+            )?,
         )?;
     }
     {

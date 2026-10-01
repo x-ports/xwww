@@ -259,7 +259,7 @@ fn make_img_request(
     outputs: &[Vec<String>],
     update_cached_disconnected_outputs: bool,
 ) -> Result<Mmap, String> {
-    let transition = make_transition(img);
+    let transition = make_transition(&img.transition_args());
 
     let palette_stops = img
         .map_palette
@@ -719,20 +719,45 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
     let start = std::time::Instant::now();
 
+    /* Entry transition: only the first frame uses it, and the loop waits for it to finish so
+       the following instant frames do not cut it off. */
+    let entry_transition = make_transition(&run.transition_args());
+    let entry_wait = if matches!(
+        entry_transition.transition_type,
+        ipc::TransitionType::None
+    ) {
+        Duration::ZERO
+    } else {
+        Duration::from_secs_f64(f64::from(run.transition_duration).max(0.0))
+    };
+
     eprintln!(
         "xwww scene: {} output(s) at {fps} fps (Ctrl-C to stop)",
         engines.len()
     );
 
+    let mut first_frame = vec![true; engines.len()];
+
     loop {
         let frame_start = std::time::Instant::now();
         let t = start.elapsed().as_secs_f64();
+        let mut sent_first = false;
 
-        for (engine, dim, output_group) in &mut engines {
+        for (index, (engine, dim, output_group)) in engines.iter_mut().enumerate() {
             if let Err(e) = engine.render(t) {
                 eprintln!("xwww scene: {e}");
                 continue;
             }
+            if !first_frame[index] && !engine.take_dirty() {
+                continue;
+            }
+            let transition = if first_frame[index] {
+                sent_first = true;
+                first_frame[index] = false;
+                entry_transition.clone()
+            } else {
+                instant_transition()
+            };
             let background = engine.palette().background;
             let bytes = engine.with_canvas(|canvas| {
                 canvas.to_flat(
@@ -741,26 +766,25 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
                     [background.r, background.g, background.b],
                 )
             });
-            send_scene_frame(bytes, *dim, format, output_group, &path, namespace)?;
+            send_scene_frame(bytes, *dim, format, output_group, &path, namespace, transition)?;
         }
 
         let elapsed = frame_start.elapsed();
-        if elapsed < interval {
-            std::thread::sleep(interval - elapsed);
+        let budget = if sent_first && entry_wait > Duration::ZERO {
+            entry_wait
+        } else {
+            interval
+        };
+        if elapsed < budget {
+            std::thread::sleep(budget - elapsed);
         }
     }
 }
 
+/// A step-255 transition: switches to the new frame immediately.
 #[cfg(feature = "scene")]
-fn send_scene_frame(
-    bytes: Box<[u8]>,
-    dim: (u32, u32),
-    format: ipc::PixelFormat,
-    outputs: &[String],
-    path: &str,
-    namespace: &str,
-) -> Result<(), String> {
-    let transition = ipc::Transition {
+fn instant_transition() -> ipc::Transition {
+    ipc::Transition {
         transition_type: ipc::TransitionType::None,
         duration: 0.0,
         step: std::num::NonZeroU8::MAX,
@@ -770,8 +794,20 @@ fn send_scene_frame(
         bezier: (0.0, 0.0, 1.0, 1.0),
         wave: (0.0, 0.0),
         invert_y: false,
-    };
+    }
+}
 
+#[cfg(feature = "scene")]
+#[allow(clippy::too_many_arguments)]
+fn send_scene_frame(
+    bytes: Box<[u8]>,
+    dim: (u32, u32),
+    format: ipc::PixelFormat,
+    outputs: &[String],
+    path: &str,
+    namespace: &str,
+    transition: ipc::Transition,
+) -> Result<(), String> {
     let mut builder = ipc::ImageRequestBuilder::new(transition)
         .map_err(|e| format!("failed to create the image request: {e}"))?;
     builder.push(

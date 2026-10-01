@@ -7,7 +7,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
+use std::sync::{Arc, OnceLock};
 
+use resvg::usvg::{self, fontdb};
 use tiny_skia::{
     Color, FillRule, GradientStop, IntSize, LinearGradient, Paint, Path, PathBuilder, Pixmap,
     PixmapPaint, Point, PremultipliedColorU8, RadialGradient, Shader, SpreadMode, Stroke,
@@ -26,10 +28,14 @@ pub struct Canvas {
     path: PathBuilder,
     /// Decoded assets, keyed by canonical path.
     assets: HashMap<PathBuf, image::RgbaImage>,
-    /// Assets already scaled to a draw size.
-    scaled: HashMap<(PathBuf, u32, u32), Pixmap>,
+    /// Assets already scaled to a draw size (the tint is part of the key).
+    scaled: HashMap<(PathBuf, u32, u32, Option<[u8; 4]>), Pixmap>,
     /// Directories from which scenes may load images (canonicalized).
     allowed: Vec<PathBuf>,
+    /// System font database, shared by every canvas and loaded once per process.
+    fonts: Arc<fontdb::Database>,
+    /// Set by every operation that touches pixels; cleared by [`Canvas::take_dirty`].
+    dirty: bool,
 }
 
 impl Canvas {
@@ -48,7 +54,16 @@ impl Canvas {
             assets: HashMap::new(),
             scaled: HashMap::new(),
             allowed: Vec::new(),
+            fonts: system_fonts(),
+            dirty: false,
         })
+    }
+
+    /// Returns whether anything was drawn since the last call, resetting the flag.
+    ///
+    /// The frame loop uses it to skip re-sending identical frames to the daemon.
+    pub fn take_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.dirty)
     }
 
     /// Allows scenes to load images from `dir` (and only from it).
@@ -63,6 +78,7 @@ impl Canvas {
     pub fn clear(&mut self, color: [u8; 4]) {
         self.pixmap
             .fill(Color::from_rgba8(color[0], color[1], color[2], color[3]));
+        self.dirty = true;
     }
 
     pub fn fill(&mut self, color: Option<[u8; 4]>) {
@@ -217,6 +233,72 @@ impl Canvas {
         self.transform = self.transform.pre_concat(Transform::from_scale(x, y));
     }
 
+    /// Draws `text` with its baseline at `x, y`, honoring the transform stack.
+    ///
+    /// The color is passed explicitly. `family` is a font family or a generic name
+    /// (`sans-serif`, `monospace`, ...), `anchor` selects the horizontal alignment
+    /// (`start`, `middle` or `end`), and `bold` picks the bold face when available.
+    /// Text is rasterized through `resvg`/`usvg` with the process-wide font database.
+    #[allow(clippy::too_many_arguments)]
+    pub fn text(
+        &mut self,
+        text: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: [u8; 4],
+        family: &str,
+        anchor: &str,
+        bold: bool,
+    ) -> Result<(), String> {
+        if text.is_empty() || !size.is_finite() || size <= 0.0 {
+            return Ok(());
+        }
+        let alpha = (f32::from(color[3]) * self.alpha).round().clamp(0.0, 255.0) as u8;
+        if alpha == 0 {
+            return Ok(());
+        }
+
+        let anchor = match anchor {
+            "middle" => "middle",
+            "end" => "end",
+            _ => "start",
+        };
+        let family = if family.trim().is_empty() {
+            "sans-serif"
+        } else {
+            family
+        };
+        let (width, height) = (self.pixmap.width(), self.pixmap.height());
+
+        let svg = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\">\
+             <text x=\"{x}\" y=\"{y}\" font-family=\"{family}\" font-size=\"{size}\" \
+             font-weight=\"{weight}\" text-anchor=\"{anchor}\" fill=\"#{red:02x}{green:02x}{blue:02x}\" \
+             fill-opacity=\"{opacity:.3}\">{content}</text></svg>",
+            x = x,
+            y = y,
+            family = escape_xml(family),
+            size = size,
+            weight = if bold { "bold" } else { "normal" },
+            red = color[0],
+            green = color[1],
+            blue = color[2],
+            opacity = f32::from(alpha) / 255.0,
+            content = escape_xml(text),
+        );
+
+        let options = usvg::Options {
+            fontdb: self.fonts.clone(),
+            ..usvg::Options::default()
+        };
+        let tree = usvg::Tree::from_str(&svg, &options)
+            .map_err(|e| format!("failed to lay out text: {e}"))?;
+        resvg::render(&tree, self.transform, &mut self.pixmap.as_mut());
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Draws an image asset scaled into the `x, y, width, height` box.
     ///
     /// The path must resolve inside one of the allowed asset directories (the scene's directory,
@@ -229,12 +311,38 @@ impl Canvas {
         width: f32,
         height: f32,
     ) -> Result<(), String> {
+        self.draw_image_inner(path, x, y, width, height, None)
+    }
+
+    /// Like [`Canvas::draw_image`], but replaces the image colors with `color` while keeping the
+    /// image's alpha. Useful for stencils (a monochrome cutout tinted with the palette).
+    pub fn draw_image_tinted(
+        &mut self,
+        path: &str,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: [u8; 4],
+    ) -> Result<(), String> {
+        self.draw_image_inner(path, x, y, width, height, Some(color))
+    }
+
+    fn draw_image_inner(
+        &mut self,
+        path: &str,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        tint: Option<[u8; 4]>,
+    ) -> Result<(), String> {
         if width <= 0.0 || height <= 0.0 || !width.is_finite() || !height.is_finite() {
             return Ok(());
         }
         let resolved = self.resolve_asset(path)?;
         let (target_w, target_h) = (width.round() as u32, height.round() as u32);
-        let key = (resolved.clone(), target_w, target_h);
+        let key = (resolved.clone(), target_w, target_h, tint);
 
         if !self.scaled.contains_key(&key) {
             let source = match self.assets.get(&resolved) {
@@ -262,6 +370,13 @@ impl Canvas {
             let mut data = Vec::with_capacity((target_w * target_h * 4) as usize);
             for pixel in resized.pixels() {
                 let [r, g, b, a] = pixel.0;
+                let (r, g, b, a) = match tint {
+                    Some([tr, tg, tb, ta]) => {
+                        let alpha = (u32::from(a) * u32::from(ta) / 255) as u8;
+                        (tr, tg, tb, alpha)
+                    }
+                    None => (r, g, b, a),
+                };
                 data.extend_from_slice(&[
                     premultiply(r, a),
                     premultiply(g, a),
@@ -289,6 +404,7 @@ impl Canvas {
             self.transform,
             None,
         );
+        self.dirty = true;
         Ok(())
     }
 
@@ -355,6 +471,7 @@ impl Canvas {
             .unwrap_or(PremultipliedColorU8::TRANSPARENT);
             pixels[(row * canvas_w + column) as usize] = color;
         }
+        self.dirty = true;
         Ok(())
     }
 
@@ -423,6 +540,7 @@ impl Canvas {
         let Some(path) = builder.finish() else {
             return;
         };
+        self.dirty = true;
         if let Some(color) = self.fill {
             let paint = self.paint(color);
             self.pixmap
@@ -477,6 +595,69 @@ impl Canvas {
 
 fn premultiply(channel: u8, alpha: u8) -> u8 {
     ((u32::from(channel) * u32::from(alpha)) / 255) as u8
+}
+
+/// Loads the system fonts once per process and maps the generic families to real ones.
+fn system_fonts() -> Arc<fontdb::Database> {
+    static FONTS: OnceLock<Arc<fontdb::Database>> = OnceLock::new();
+    FONTS
+        .get_or_init(|| {
+            let mut db = fontdb::Database::new();
+            db.load_system_fonts();
+
+            let families: Vec<String> = db
+                .faces()
+                .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
+                .collect();
+            let has = |candidate: &str| families.iter().any(|name| name == candidate);
+
+            for candidate in [
+                "Inter",
+                "Noto Sans",
+                "Open Sans",
+                "DejaVu Sans",
+                "Liberation Sans",
+                "Cantarell",
+                "Adwaita Sans",
+                "Arial",
+            ] {
+                if has(candidate) {
+                    db.set_sans_serif_family(candidate);
+                    break;
+                }
+            }
+            for candidate in [
+                "JetBrains Mono",
+                "Hack Nerd Font",
+                "Fira Code",
+                "Cascadia Code",
+                "DejaVu Sans Mono",
+                "Liberation Mono",
+            ] {
+                if has(candidate) {
+                    db.set_monospace_family(candidate);
+                    break;
+                }
+            }
+
+            Arc::new(db)
+        })
+        .clone()
+}
+
+fn escape_xml(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn luma(color: [u8; 3]) -> f32 {
@@ -577,6 +758,41 @@ mod tests {
         assert_eq!(&canvas.to_flat(3, false, [7, 8, 9])[..], &[7, 8, 9]);
     }
 
+    #[test]
+    fn text_renders_glyphs() {
+        if system_fonts().is_empty() {
+            return;
+        }
+        let mut canvas = Canvas::new(64, 32).unwrap();
+        canvas.clear([0, 0, 0, 255]);
+        canvas
+            .text(
+                "Ag",
+                2.0,
+                24.0,
+                24.0,
+                [255, 255, 255, 255],
+                "sans-serif",
+                "start",
+                false,
+            )
+            .unwrap();
+        assert!(
+            pixels(&canvas).iter().any(|pixel| pixel[0] > 200),
+            "no glyph pixels were drawn"
+        );
+    }
+
+    #[test]
+    fn empty_text_is_a_noop() {
+        let mut canvas = Canvas::new(4, 4).unwrap();
+        canvas.clear([0, 0, 0, 255]);
+        canvas
+            .text("", 0.0, 0.0, 10.0, [255, 255, 255, 255], "", "", false)
+            .unwrap();
+        assert!(pixels(&canvas).iter().all(|p| *p == [0, 0, 0]));
+    }
+
     fn write_test_image(name: &str) -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir().join(format!("xwww-canvas-assets-{name}"));
         std::fs::create_dir_all(&dir).unwrap();
@@ -597,6 +813,19 @@ mod tests {
         let flat = canvas.to_flat(3, false, [0, 0, 0]);
         assert_eq!(&flat[0..3], &[255, 255, 255]);
         assert_eq!(&flat[3..6], &[0, 0, 0]);
+    }
+
+    #[test]
+    fn draws_a_tinted_asset() {
+        let (dir, _) = write_test_image("tint");
+        let mut canvas = Canvas::new(2, 1).unwrap();
+        canvas.allow_asset_dir(&dir);
+        canvas
+            .draw_image_tinted("asset.png", 0.0, 0.0, 2.0, 1.0, [255, 0, 0, 255])
+            .unwrap();
+        let flat = canvas.to_flat(3, false, [0, 0, 0]);
+        assert_eq!(&flat[0..3], &[255, 0, 0]);
+        assert_eq!(&flat[3..6], &[255, 0, 0]);
     }
 
     #[test]
