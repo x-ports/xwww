@@ -278,6 +278,11 @@ impl SceneRuntime {
         self.canvas.borrow_mut().save_fade_to();
     }
 
+    /// Restores the clean crossfade target on the canvas without dropping the fade state.
+    pub fn restore_fade_target(&self) {
+        self.canvas.borrow_mut().restore_fade_target();
+    }
+
     /// Rebuilds the canvas as the new frame with the old one faded on top.
     pub fn draw_fade(&self, alpha: f32) {
         self.canvas.borrow_mut().draw_fade(alpha);

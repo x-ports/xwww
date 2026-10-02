@@ -109,6 +109,18 @@ impl Canvas {
         self.fade_to = Some(self.pixmap.clone());
     }
 
+    /// Restores the clean crossfade target on the surface without dropping the fade state.
+    ///
+    /// Scenes that only repaint when their inputs change (static cards, dashboard-like scenes)
+    /// must not have the blended surface saved as the next target: they keep this clean frame
+    /// under the fade, while scenes that repaint every frame evolve from their own last output.
+    pub fn restore_fade_target(&mut self) {
+        if let Some(to) = &self.fade_to {
+            self.pixmap.data_mut().copy_from_slice(to.data());
+            self.dirty = true;
+        }
+    }
+
     /// Rebuilds the surface as the new frame with the old one composited on top at `alpha`
     /// (`1.0` fully visible, `0.0` invisible). Used to fade out the previous palette frame.
     /// No-op without both saved frames.
