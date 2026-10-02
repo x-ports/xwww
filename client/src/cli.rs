@@ -1,6 +1,6 @@
 /// Note: this file only has basic declarations and some definitions in order to be possible to
 /// import it in the build script, to automate shell completion
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 fn from_hex(hex: &str) -> Result<[u8; 4], String> {
@@ -219,6 +219,12 @@ pub enum Xwww {
 
     ///Captures the currently displayed wallpaper and saves it as an image file.
     Screenshot(Screenshot),
+
+    /// Renders a JavaScript scene as the wallpaper (requires the `scene` feature).
+    ///
+    /// A scene is a JavaScript file with optional `setup(ctx)` and `render(t, ctx)` functions
+    /// that draw with a small canvas API and can read the active color palette.
+    Scene(Scene),
 }
 
 #[derive(Parser)]
@@ -571,6 +577,32 @@ pub struct Img {
     #[arg(long, default_value = "1.0")]
     pub dim: f32,
 
+    /// Recolors the wallpaper with the colors of a palette (gradient map over luminance).
+    ///
+    /// Available sources:
+    ///
+    /// `xwww` / `xwww:<path>` reads the xwww palette file (`~/.config/xwww/palette.json` by
+    /// default), which the desktop is expected to write.
+    ///
+    /// `equisdots` / `equisdots:<slug>` reads the palette of the equisdots desktop
+    /// (`~/.config/hypr/settings.json` -> `bar.palette` and the `dock/palettes` directory).
+    ///
+    /// `file:<path>` (or a bare path) reads a palette JSON, or a text file with one `#rrggbb`
+    /// color per line.
+    ///
+    /// `command:<cmd>` parses the stdout of a command the same way as `file`.
+    ///
+    /// The effect maps each pixel's luminance through the palette. Applies only to static
+    /// images.
+    #[arg(long, value_parser = parse_palette_spec)]
+    pub map_palette: Option<String>,
+
+    /// How strongly `--map-palette` overrides the original colors (`0.0` to `1.0`).
+    ///
+    /// `0.0` keeps the original image, `1.0` fully replaces it with the palette gradient.
+    #[arg(long, default_value = "1.0")]
+    pub map_strength: f32,
+
     ///Sets the type of transition. Default is 'simple', that fades into the new image
     ///
     ///Possible transitions are:
@@ -711,6 +743,30 @@ fn parse_bezier(raw: &str) -> Result<(f32, f32, f32, f32), String> {
         return Err("Invalid bezier curve: 0,0,0,0 (try using 0,0,1,1 instead)".to_string());
     }
     Ok(parsed)
+}
+
+/// Validates the `--map-palette` spec syntax early (parsing lives in `palette_source`).
+fn parse_palette_spec(raw: &str) -> Result<String, String> {
+    if raw == "xwww" || raw == "equisdots" {
+        return Ok(raw.to_string());
+    }
+
+    match raw.split_once(':') {
+        Some(("xwww", value)) if !value.is_empty() => Ok(raw.to_string()),
+        Some(("equisdots", value)) if !value.is_empty() => Ok(raw.to_string()),
+        Some(("file", value)) if !value.is_empty() => Ok(raw.to_string()),
+        Some(("command", value)) if !value.is_empty() => Ok(raw.to_string()),
+        Some((kind, _)) if matches!(kind, "xwww" | "equisdots" | "file" | "command") => {
+            Err(format!("'{kind}' requires a value after ':'"))
+        }
+        None if raw.starts_with('/') || raw.starts_with('~') || raw.starts_with('.') => {
+            Ok(raw.to_string())
+        }
+        _ => Err(format!(
+            "unrecognized palette source '{raw}'. Valid sources: \
+             xwww | xwww:<path> | equisdots | equisdots:<slug> | file:<path> | command:<cmd>"
+        )),
+    }
 }
 
 pub fn parse_image(raw: &str) -> Result<CliImage, String> {
@@ -889,6 +945,195 @@ pub struct Screenshot {
     /// The daemon's namespace.
     #[arg(short, long, default_value = "")]
     pub namespace: Vec<String>,
+}
+
+#[derive(Parser)]
+pub struct Scene {
+    #[command(subcommand)]
+    pub command: SceneCommand,
+}
+
+#[derive(Subcommand)]
+pub enum SceneCommand {
+    ///Compiles the scene and exits.
+    Check(SceneCheck),
+
+    ///Renders a single frame to a PNG file.
+    Render(SceneRender),
+
+    ///Renders the scene continuously and sends the frames to the daemon.
+    Run(SceneRun),
+}
+
+#[derive(Parser)]
+pub struct SceneCheck {
+    /// Path to the JavaScript scene.
+    pub script: PathBuf,
+}
+
+#[derive(Parser)]
+pub struct SceneRender {
+    /// Path to the JavaScript scene.
+    pub script: PathBuf,
+
+    /// Output PNG file.
+    #[arg(short, long, default_value = "scene.png")]
+    pub output: PathBuf,
+
+    /// Canvas size in `WxH` physical pixels.
+    #[arg(long, default_value = "2560x1440")]
+    pub size: String,
+
+    /// Palette source: `xwww[:<path>]`, `equisdots[:<slug>]`, `file:<path>` or `command:<cmd>`.
+    ///
+    /// Defaults to `~/.config/xwww/palette.json`, then the equisdots palette, then a neutral
+    /// fallback.
+    #[arg(long)]
+    pub palette: Option<String>,
+
+    /// Per-frame JavaScript execution budget in milliseconds.
+    #[arg(long, default_value = "100")]
+    pub timeout_ms: u64,
+
+    /// Extra directory (or file) whose images the scene may load with `canvas.image`.
+    ///
+    /// The scene's own directory is always allowed. Repeat the flag for several paths.
+    #[arg(long = "asset", value_name = "PATH")]
+    pub assets: Vec<PathBuf>,
+}
+
+#[derive(Parser)]
+pub struct SceneRun {
+    /// Path to the JavaScript scene.
+    pub script: PathBuf,
+
+    /// Frames per second to render and send.
+    #[arg(long, default_value = "10")]
+    pub fps: u32,
+
+    /// Palette source: `xwww[:<path>]`, `equisdots[:<slug>]`, `file:<path>` or `command:<cmd>`.
+    ///
+    /// Defaults to `~/.config/xwww/palette.json`, then the equisdots palette, then a neutral
+    /// fallback.
+    #[arg(long)]
+    pub palette: Option<String>,
+
+    /// Per-frame JavaScript execution budget in milliseconds.
+    #[arg(long, default_value = "100")]
+    pub timeout_ms: u64,
+
+    /// Extra directory (or file) whose images the scene may load with `canvas.image`.
+    ///
+    /// The scene's own directory is always allowed. Repeat the flag for several paths.
+    #[arg(long = "asset", value_name = "PATH")]
+    pub assets: Vec<PathBuf>,
+
+    /// Comma separated list of outputs to display the scene at.
+    ///
+    /// If it isn't set, the scene is displayed on all outputs.
+    #[arg(short, long, default_value = "")]
+    pub outputs: String,
+
+    /// The daemon's namespace.
+    ///
+    /// The resulting namespace will be 'xwww-daemon' appended to what you pass in this argument.
+    /// For this to work, you must call `xwww-daemon --namespace <custom_namespace>` with the same
+    /// value you use here.
+    #[arg(short, long, default_value = "")]
+    pub namespace: Vec<String>,
+
+    /// Entry transition for the first frame (same set as `xwww img --transition-type`).
+    ///
+    /// The first frame is sent with this transition, then the render loop waits for
+    /// `--transition-duration` before sending instant frames, so the effect is not cut off.
+    /// Default `none` starts instantly.
+    #[arg(long, env = "XWWW_TRANSITION", default_value = "none")]
+    pub transition_type: TransitionType,
+
+    /// How fast the transition approaches the new frame (`simple` transition only).
+    #[arg(long, env = "XWWW_TRANSITION_STEP", default_value = "255")]
+    pub transition_step: std::num::NonZeroU8,
+
+    /// How long the entry transition takes to complete, in seconds.
+    ///
+    /// The scene does not send further frames until it finishes. Ignored by `simple`.
+    #[arg(long, env = "XWWW_TRANSITION_DURATION", default_value = "1.0")]
+    pub transition_duration: f32,
+
+    /// Frame rate for the entry transition.
+    #[arg(long, env = "XWWW_TRANSITION_FPS", default_value = "144")]
+    pub transition_fps: u16,
+
+    /// Angle for the `wipe`/`wave` transitions, in degrees.
+    #[arg(long, env = "XWWW_TRANSITION_ANGLE", default_value = "45")]
+    pub transition_angle: f64,
+
+    /// Center used by `grow`/`outer`/`zoom`.
+    #[arg(long, env = "XWWW_TRANSITION_POS", default_value = "center", value_parser = parse_coords)]
+    pub transition_pos: CliPosition,
+
+    /// Bezier curve for the `fade`/`grow`/`outer` transitions.
+    #[arg(long, env = "XWWW_TRANSITION_BEZIER", default_value = ".54,0,.34,.99", value_parser = parse_bezier)]
+    pub transition_bezier: (f32, f32, f32, f32),
+
+    /// Wave size for the `wave` transition.
+    #[arg(long, env = "XWWW_TRANSITION_WAVE", default_value = "20,20", value_parser = parse_wave)]
+    pub transition_wave: (f32, f32),
+
+    /// Inverts the y position sent in `--transition-pos`.
+    #[arg(long, env = "INVERT_Y", default_value = "false")]
+    pub invert_y: bool,
+}
+
+/// The transition options shared by `img` and `scene run`; [`Img::transition_args`] and
+/// [`SceneRun::transition_args`] normalize them for [`crate::imgproc::make_transition`].
+#[derive(Clone)]
+pub struct TransitionArgs {
+    pub transition_type: TransitionType,
+    pub transition_step: std::num::NonZeroU8,
+    pub transition_duration: f32,
+    pub transition_fps: u16,
+    pub transition_angle: f64,
+    pub transition_pos: CliPosition,
+    pub transition_bezier: (f32, f32, f32, f32),
+    pub transition_wave: (f32, f32),
+    pub invert_y: bool,
+}
+
+impl Img {
+    /// View of this command's transition flags for the shared transition builder.
+    #[must_use]
+    pub fn transition_args(&self) -> TransitionArgs {
+        TransitionArgs {
+            transition_type: self.transition_type.clone(),
+            transition_step: self.transition_step,
+            transition_duration: self.transition_duration,
+            transition_fps: self.transition_fps,
+            transition_angle: self.transition_angle,
+            transition_pos: self.transition_pos.clone(),
+            transition_bezier: self.transition_bezier,
+            transition_wave: self.transition_wave,
+            invert_y: self.invert_y,
+        }
+    }
+}
+
+impl SceneRun {
+    /// View of this command's entry-transition flags for the shared transition builder.
+    #[must_use]
+    pub fn transition_args(&self) -> TransitionArgs {
+        TransitionArgs {
+            transition_type: self.transition_type.clone(),
+            transition_step: self.transition_step,
+            transition_duration: self.transition_duration,
+            transition_fps: self.transition_fps,
+            transition_angle: self.transition_angle,
+            transition_pos: self.transition_pos.clone(),
+            transition_bezier: self.transition_bezier,
+            transition_wave: self.transition_wave,
+            invert_y: self.invert_y,
+        }
+    }
 }
 
 #[cfg(test)]

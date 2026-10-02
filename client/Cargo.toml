@@ -38,14 +38,17 @@ fastrand = { version = "2.4", default-features = false, features = ["std"] }
 common = { workspace = true }
 jxl-oxide = { version = "0.12", features = ["image"], optional = true }
 ffmpeg-next = { version = "9", optional = true }
+rquickjs = { version = "0.14", optional = true }
+tiny-skia = { version = "0.12", optional = true }
 
 [features]
 default = ["video"]
-all-formats = ["avif", "jxl", "video"]
+all-formats = ["avif", "jxl", "video", "scene"]
 avif = ["image/avif-native"]
 jxl = ["dep:jxl-oxide"]
 video = ["dep:ffmpeg-next"]
 video-static = ["video", "ffmpeg-next/build"]
+scene = ["dep:rquickjs", "dep:tiny-skia"]
 
 [build-dependencies]
 clap = { version = "4.6", features = ["derive", "env"] }

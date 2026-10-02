@@ -14,6 +14,9 @@ be implemented entirely in the client; *(daemon)* require changes to the daemon 
 
 ## Features
 
+- **Smart wallpapers** — `xwww scene` (JS scenes driven by palettes) is implemented behind the
+  `scene` feature; Hyprland events and streaming are still pending. See [scene.md](scene.md)
+  *(client)*.
 - **Color scheme generator** — extend `palette` to emit a full theme (background, foreground,
   accent) and integrate with external themers *(client)*.
 - **`xwww watch`** — an event stream (wallpaper set, output hotplug) for reactive shells instead

@@ -622,12 +622,12 @@ pub fn img_resize_crop(
     Ok(resized_img)
 }
 
-pub fn make_transition(img: &cli::Img) -> ipc::Transition {
-    let mut angle = img.transition_angle;
-    let mut wave = img.transition_wave;
-    let step = img.transition_step;
+pub fn make_transition(args: &cli::TransitionArgs) -> ipc::Transition {
+    let mut angle = args.transition_angle;
+    let mut wave = args.transition_wave;
+    let step = args.transition_step;
 
-    let x = match img.transition_pos.x {
+    let x = match args.transition_pos.x {
         cli::CliCoord::Percent(x) => {
             if !(0.0..=1.0).contains(&x) {
                 println!(
@@ -639,7 +639,7 @@ pub fn make_transition(img: &cli::Img) -> ipc::Transition {
         cli::CliCoord::Pixel(x) => Coord::Pixel(x),
     };
 
-    let y = match img.transition_pos.y {
+    let y = match args.transition_pos.y {
         cli::CliCoord::Percent(y) => {
             if !(0.0..=1.0).contains(&y) {
                 println!(
@@ -653,7 +653,7 @@ pub fn make_transition(img: &cli::Img) -> ipc::Transition {
 
     let mut pos = Position::new(x, y);
 
-    let transition_type = match img.transition_type {
+    let transition_type = match args.transition_type {
         cli::TransitionType::None => ipc::TransitionType::None,
         cli::TransitionType::Simple => ipc::TransitionType::Simple,
         cli::TransitionType::Fade => ipc::TransitionType::Fade,
@@ -724,15 +724,15 @@ pub fn make_transition(img: &cli::Img) -> ipc::Transition {
     };
 
     let transition = ipc::Transition {
-        duration: img.transition_duration,
+        duration: args.transition_duration,
         step,
-        fps: img.transition_fps,
-        bezier: img.transition_bezier,
+        fps: args.transition_fps,
+        bezier: args.transition_bezier,
         angle,
         pos,
         transition_type,
         wave,
-        invert_y: img.invert_y,
+        invert_y: args.invert_y,
     };
 
     common::log::debug!("transition: {transition:#?}");

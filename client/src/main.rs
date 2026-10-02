@@ -14,8 +14,12 @@ use cli::{CliImage, CropGravity, Filter, ResizeStrategy, Xwww};
 mod effects;
 
 mod palette;
+mod palette_source;
 mod screenshot;
 mod slideshow;
+
+#[cfg(feature = "scene")]
+mod scene;
 
 #[cfg(feature = "video")]
 mod video;
@@ -30,6 +34,20 @@ fn main() -> Result<(), String> {
         Xwww::Slideshow(s) => return slideshow::run(s),
         Xwww::Random(r) => return slideshow::run_random(r),
         Xwww::Screenshot(s) => return screenshot::run(s),
+        Xwww::Scene(scene_args) => {
+            #[cfg(feature = "scene")]
+            {
+                return run_scene_cli(scene_args);
+            }
+            #[cfg(not(feature = "scene"))]
+            {
+                let _ = scene_args;
+                return Err(
+                    "this build of xwww has no scene support (rebuild with `--features scene`)"
+                        .to_string(),
+                );
+            }
+        }
         _ => {}
     }
 
@@ -45,9 +63,11 @@ fn main() -> Result<(), String> {
         Xwww::Unpause(unpause) => unpause.all,
         Xwww::Kill(kill) => kill.all,
         Xwww::Query(query) => query.all,
-        Xwww::Palette(_) | Xwww::Slideshow(_) | Xwww::Random(_) | Xwww::Screenshot(_) => {
-            unreachable!()
-        }
+        Xwww::Palette(_)
+        | Xwww::Slideshow(_)
+        | Xwww::Random(_)
+        | Xwww::Screenshot(_)
+        | Xwww::Scene(_) => unreachable!(),
     };
 
     let namespaces = if all {
@@ -65,9 +85,11 @@ fn main() -> Result<(), String> {
             Xwww::Unpause(unpause) => unpause.namespace.clone(),
             Xwww::Kill(kill) => kill.namespace.clone(),
             Xwww::Query(query) => query.namespace.clone(),
-            Xwww::Palette(_) | Xwww::Slideshow(_) | Xwww::Random(_) | Xwww::Screenshot(_) => {
-                unreachable!()
-            }
+            Xwww::Palette(_)
+            | Xwww::Slideshow(_)
+            | Xwww::Random(_)
+            | Xwww::Screenshot(_)
+            | Xwww::Scene(_) => unreachable!(),
         }
     };
 
@@ -221,9 +243,11 @@ fn make_request(args: &Xwww, namespace: &str) -> Result<Option<RequestSend>, Str
         Xwww::Unpause(_) => Ok(Some(RequestSend::Unpause)),
         Xwww::Kill(_) => Ok(Some(RequestSend::Kill)),
         Xwww::Query(_) => Ok(Some(RequestSend::Query)),
-        Xwww::Palette(_) | Xwww::Slideshow(_) | Xwww::Random(_) | Xwww::Screenshot(_) => {
-            unreachable!()
-        }
+        Xwww::Palette(_)
+        | Xwww::Slideshow(_)
+        | Xwww::Random(_)
+        | Xwww::Screenshot(_)
+        | Xwww::Scene(_) => unreachable!(),
     }
 }
 
@@ -235,7 +259,18 @@ fn make_img_request(
     outputs: &[Vec<String>],
     update_cached_disconnected_outputs: bool,
 ) -> Result<Mmap, String> {
-    let transition = make_transition(img);
+    let transition = make_transition(&img.transition_args());
+
+    let palette_stops = img
+        .map_palette
+        .as_deref()
+        .map(|spec| {
+            palette_source::ScenePalette::load(spec)
+                .map(|palette| palette.gradient_stops())
+                .map_err(|e| format!("failed to load palette '{spec}': {e}"))
+        })
+        .transpose()?;
+
     let mut img_req_builder = ipc::ImageRequestBuilder::new(transition)
         .map_err(|e| format!("failed to create ImageRequestBuilder: {e}"))?;
 
@@ -375,6 +410,7 @@ fn make_img_request(
 
                             let blur = img.blur;
                             let dim_factor = img.dim;
+                            let map_strength = img.map_strength;
                             let mut img = match img.resize {
                                 ResizeStrategy::No => img_pad(&img_raw, dim, img.fill_color),
                                 ResizeStrategy::Crop => img_resize_crop(
@@ -395,6 +431,14 @@ fn make_img_request(
                             };
                             effects::blur(&mut img, dim.0, dim.1, pixel_format.channels(), blur);
                             effects::dim(&mut img, pixel_format.channels(), dim_factor);
+                            if let Some(stops) = &palette_stops {
+                                effects::palette_map(
+                                    &mut img,
+                                    pixel_format.channels(),
+                                    stops,
+                                    map_strength,
+                                );
+                            }
 
                             img_req_builder.push(
                                 ipc::ImgSend {
@@ -421,6 +465,7 @@ fn make_img_request(
                             let img_raw = imgbuf.decode(pixel_format, dim.0, dim.1)?;
                             let blur = img.blur;
                             let dim_factor = img.dim;
+                            let map_strength = img.map_strength;
                             let mut img = match img.resize {
                                 ResizeStrategy::No => img_pad(&img_raw, dim, img.fill_color),
                                 ResizeStrategy::Crop => img_resize_crop(
@@ -441,6 +486,14 @@ fn make_img_request(
                             };
                             effects::blur(&mut img, dim.0, dim.1, pixel_format.channels(), blur);
                             effects::dim(&mut img, pixel_format.channels(), dim_factor);
+                            if let Some(stops) = &palette_stops {
+                                effects::palette_map(
+                                    &mut img,
+                                    pixel_format.channels(),
+                                    stops,
+                                    map_strength,
+                                );
+                            }
                             img_req_builder.push(
                                 ipc::ImgSend {
                                     img,
@@ -568,6 +621,8 @@ fn restore_output(output: &str, namespace: &str) -> Result<(), String> {
             filter: Filter::from_str(cache.filter).unwrap_or(Filter::Lanczos3),
             blur: 0,
             dim: 1.0,
+            map_palette: None,
+            map_strength: 1.0,
             transition_type: cli::TransitionType::None,
             transition_step: std::num::NonZeroU8::MAX,
             transition_duration: 0.0,
@@ -584,4 +639,200 @@ fn restore_output(output: &str, namespace: &str) -> Result<(), String> {
         namespace,
     )?;
     Ok(())
+}
+
+#[cfg(feature = "scene")]
+fn run_scene_cli(args: &cli::Scene) -> Result<(), String> {
+    match &args.command {
+        cli::SceneCommand::Check(check) => {
+            scene::SceneEngine::check(&check.script)?;
+            println!("{}: ok", check.script.display());
+            Ok(())
+        }
+        cli::SceneCommand::Render(render) => render_scene_png(render),
+        cli::SceneCommand::Run(run) => run_scene(run),
+    }
+}
+
+#[cfg(feature = "scene")]
+fn parse_scene_size(raw: &str) -> Result<(u32, u32), String> {
+    let invalid = || format!("invalid size '{raw}', expected WxH (e.g. 2560x1440)");
+    let (width, height) = raw.split_once(['x', 'X']).ok_or_else(invalid)?;
+    let width: u32 = width.trim().parse().map_err(|_| invalid())?;
+    let height: u32 = height.trim().parse().map_err(|_| invalid())?;
+    if width == 0 || height == 0 {
+        return Err(format!("invalid size '{raw}', dimensions must be positive"));
+    }
+    Ok((width, height))
+}
+
+#[cfg(feature = "scene")]
+fn render_scene_png(render: &cli::SceneRender) -> Result<(), String> {
+    let (width, height) = parse_scene_size(&render.size)?;
+    let timeout = Duration::from_millis(render.timeout_ms.max(1));
+    let mut engine = scene::SceneEngine::load_with_assets(
+        &render.script,
+        width,
+        height,
+        timeout,
+        render.palette.as_deref(),
+        &render.assets,
+    )?;
+
+    engine.render(0.0)?;
+
+    let background = engine.palette().background;
+    let rgb = engine
+        .with_canvas(|canvas| canvas.to_flat(3, false, [background.r, background.g, background.b]));
+    let image = image::RgbImage::from_raw(width, height, rgb.into_vec())
+        .ok_or("failed to build the output image")?;
+    image
+        .save(&render.output)
+        .map_err(|e| format!("failed to save {}: {e}", render.output.display()))?;
+
+    println!("wrote {}", render.output.display());
+    Ok(())
+}
+
+#[cfg(feature = "scene")]
+fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
+    let namespace = run.namespace.first().map(String::as_str).unwrap_or("");
+    let requested_outputs = split_cmdline_outputs(&run.outputs);
+    let (format, dims, outputs) = get_format_dims_and_outputs(&requested_outputs, namespace)?;
+
+    let timeout = Duration::from_millis(run.timeout_ms.max(1));
+    let mut engines = Vec::with_capacity(dims.len());
+    for (dim, output_group) in dims.iter().zip(&outputs) {
+        let engine =
+            scene::SceneEngine::load(&run.script, dim.0, dim.1, timeout, run.palette.as_deref())?;
+        engines.push((engine, *dim, output_group.clone()));
+    }
+
+    let path = format!(
+        "scene:{}",
+        run.script
+            .canonicalize()
+            .unwrap_or_else(|_| run.script.clone())
+            .display()
+    );
+    let fps = run.fps.max(1);
+    let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
+    let start = std::time::Instant::now();
+
+    /* Entry transition: only the first frame uses it, and the loop waits for it to finish so
+       the following instant frames do not cut it off. */
+    let entry_transition = make_transition(&run.transition_args());
+    let entry_wait = if matches!(
+        entry_transition.transition_type,
+        ipc::TransitionType::None
+    ) {
+        Duration::ZERO
+    } else {
+        Duration::from_secs_f64(f64::from(run.transition_duration).max(0.0))
+    };
+
+    eprintln!(
+        "xwww scene: {} output(s) at {fps} fps (Ctrl-C to stop)",
+        engines.len()
+    );
+
+    let mut first_frame = vec![true; engines.len()];
+
+    loop {
+        let frame_start = std::time::Instant::now();
+        let t = start.elapsed().as_secs_f64();
+        let mut sent_first = false;
+
+        for (index, (engine, dim, output_group)) in engines.iter_mut().enumerate() {
+            if let Err(e) = engine.render(t) {
+                eprintln!("xwww scene: {e}");
+                continue;
+            }
+            if !first_frame[index] && !engine.take_dirty() {
+                continue;
+            }
+            let transition = if first_frame[index] {
+                sent_first = true;
+                first_frame[index] = false;
+                entry_transition.clone()
+            } else {
+                instant_transition()
+            };
+            let background = engine.palette().background;
+            let bytes = engine.with_canvas(|canvas| {
+                canvas.to_flat(
+                    format.channels(),
+                    format.must_swap_r_and_b_channels(),
+                    [background.r, background.g, background.b],
+                )
+            });
+            send_scene_frame(bytes, *dim, format, output_group, &path, namespace, transition)?;
+        }
+
+        let elapsed = frame_start.elapsed();
+        let budget = if sent_first && entry_wait > Duration::ZERO {
+            entry_wait
+        } else {
+            interval
+        };
+        if elapsed < budget {
+            std::thread::sleep(budget - elapsed);
+        }
+    }
+}
+
+/// A step-255 transition: switches to the new frame immediately.
+#[cfg(feature = "scene")]
+fn instant_transition() -> ipc::Transition {
+    ipc::Transition {
+        transition_type: ipc::TransitionType::None,
+        duration: 0.0,
+        step: std::num::NonZeroU8::MAX,
+        fps: 1,
+        angle: 0.0,
+        pos: ipc::Position::new(ipc::Coord::Percent(0.5), ipc::Coord::Percent(0.5)),
+        bezier: (0.0, 0.0, 1.0, 1.0),
+        wave: (0.0, 0.0),
+        invert_y: false,
+    }
+}
+
+#[cfg(feature = "scene")]
+#[allow(clippy::too_many_arguments)]
+fn send_scene_frame(
+    bytes: Box<[u8]>,
+    dim: (u32, u32),
+    format: ipc::PixelFormat,
+    outputs: &[String],
+    path: &str,
+    namespace: &str,
+    transition: ipc::Transition,
+) -> Result<(), String> {
+    let mut builder = ipc::ImageRequestBuilder::new(transition)
+        .map_err(|e| format!("failed to create the image request: {e}"))?;
+    builder.push(
+        ipc::ImgSend {
+            path: path.to_string(),
+            dim,
+            format,
+            img: bytes,
+        },
+        namespace,
+        false,
+        "crop",
+        None,
+        "Lanczos3",
+        outputs,
+        None,
+    );
+
+    let socket = IpcSocket::client(namespace).map_err(|e| e.to_string())?;
+    RequestSend::Img(builder.build())
+        .send(&socket)
+        .map_err(|e| e.to_string())?;
+    let answer = Answer::receive(socket.recv().map_err(|e| e.to_string())?);
+    match answer {
+        Answer::Ok => Ok(()),
+        _ => Err("unexpected answer from the daemon".to_string()),
+    }
 }

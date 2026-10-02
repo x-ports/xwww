@@ -110,6 +110,8 @@ fn make_img(
         filter: cli::Filter::Lanczos3,
         blur: 0,
         dim: 1.0,
+        map_palette: None,
+        map_strength: 1.0,
         transition_type: transition,
         transition_step: std::num::NonZeroU8::new(90).unwrap(),
         transition_duration: 1.0,

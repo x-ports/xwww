@@ -29,8 +29,11 @@ Pixel data is transferred with zero copies through shared memory: the client wri
 - `main.rs` — orchestration: parses args, builds requests, sends them.
 - `imgproc.rs` — image decoding (`image` + `resvg`), resizing (`fast_image_resize`), frame
   compression.
-- `effects.rs` — `--blur` and `--dim` post-processing.
+- `effects.rs` — `--blur`, `--dim` and `--map-palette` post-processing.
 - `palette.rs` — the `palette` subcommand (dominant-color extraction).
+- `palette_source.rs` — palette loading/normalization for `--map-palette` and scenes (equisdots, files, commands).
+- `scene/` — the JavaScript scene engine behind the `scene` feature: `canvas.rs` (tiny-skia),
+  `runtime.rs` (QuickJS bindings), `providers.rs` (palette and clock).
 - `slideshow.rs` — the `slideshow` subcommand.
 - `screenshot.rs` — the `screenshot` subcommand.
 - `video.rs` — video decoding via `ffmpeg-next` (behind the `video` feature).

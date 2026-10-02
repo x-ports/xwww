@@ -8,7 +8,8 @@ The `client` crate exposes build-time feature flags:
 | `video-static` | no | Like `video`, but compiles and statically links FFmpeg from source (no runtime FFmpeg dependency). |
 | `avif`  | no | AVIF decoding via `image/avif-native` (requires `dav1d`). |
 | `jxl`   | no | JPEG-XL decoding via `jxl-oxide`. |
-| `all-formats` | no | Enables `avif`, `jxl` and `video` together. |
+| `scene` | no | JavaScript scene wallpapers (`xwww scene`): embeds QuickJS (`rquickjs`) and uses `tiny-skia`. |
+| `all-formats` | no | Enables `avif`, `jxl`, `video` and `scene` together. |
 
 ## Examples
 
@@ -21,6 +22,9 @@ cargo build --release --all-features
 
 # minimal build, no video/avif/jxl
 cargo build --release --no-default-features
+
+# with JavaScript scenes
+cargo build --release --features scene
 ```
 
 Note: the FFmpeg dependency (`ffmpeg-sys-next`) generates C bindings at build time, so the `video`

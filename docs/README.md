@@ -9,8 +9,9 @@ protocol, and is controlled at runtime by the `xwww` client.
 - [Architecture](architecture.md) — how the client, daemon and shared library fit together.
 - [Commands](commands.md) — reference for every `xwww` subcommand.
 - [Transitions](transitions.md) — the available transition effects (including `glitch` and `decrypt`).
-- [Image effects](image-effects.md) — `--blur` and `--dim`.
+- [Image effects](image-effects.md) — `--blur`, `--dim` and `--map-palette`.
 - [Palette](palette.md) — extracting dominant colors (`xwww palette`).
+- [Scene engine](scene.md) — smart wallpapers: JS scenes, palettes and reactive triggers (design).
 - [Slideshow](slideshow.md) — cycling wallpapers (`xwww slideshow`).
 - [Screenshot](screenshot.md) — capturing the current wallpaper (`xwww screenshot`).
 - [Video](video.md) — video wallpaper support.

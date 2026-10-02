@@ -24,6 +24,8 @@ Notable options:
 | `--transition-step/-fps/-duration` | Transition timing controls. |
 | `--blur <radius>` | Gaussian blur radius (see [image effects](image-effects.md)). |
 | `--dim <factor>` | Dim factor in `[0,1]` (see [image effects](image-effects.md)). |
+| `--map-palette <spec>` | Recolor with a palette; `equisdots[:slug]`, `file:<path>`, `command:<cmd>` (see [image effects](image-effects.md)). |
+| `--map-strength <factor>` | Blend for `--map-palette` in `[0,1]` (default `1.0`). |
 | `--no-cache` | Don't update the per-output cache. |
 
 ## `clear`
@@ -59,6 +61,18 @@ xwww random ~/Pictures/wallpapers -t glitch
 ## `screenshot`
 
 Captures the current wallpaper to a PNG. See [screenshot](screenshot.md).
+
+## `scene`
+
+Renders a JavaScript scene (shape and color wallpaper) and displays it through the daemon.
+Requires a build with the `scene` feature. See [scene engine](scene.md).
+
+```sh
+xwww scene check ~/scenes/clock.js          # compile only
+xwww scene render ~/scenes/clock.js -o out.png --size 2560x1440
+xwww scene run ~/scenes/clock.js --fps 10 --palette equisdots
+xwww scene run ~/scenes/photo.js --asset ~/Pictures --fps 1 --timeout-ms 400
+```
 
 ## `toggle`, `pause`, `unpause`, `kill`
 
