@@ -126,7 +126,6 @@ impl SceneEngine {
             self.last_palette = Some(digest);
             if !self.palette_fade.is_zero() {
                 self.runtime.save_fade_from();
-                self.fade_deadline = Some(Instant::now() + self.palette_fade);
             }
         }
 
@@ -134,9 +133,11 @@ impl SceneEngine {
         self.runtime.render(t, &palette, setup_done)?;
 
         // The frame the scene just painted is the end of the crossfade. Every fade frame is
-        // rebuilt from it, so the surface never keeps a blend of the old palette.
-        if changed && self.fade_deadline.is_some() {
+        // rebuilt from it, so the surface never keeps a blend of the old palette. The fade
+        // clock starts here: redrawing the scene can take most of the fade otherwise.
+        if changed && !self.palette_fade.is_zero() {
             self.runtime.save_fade_to();
+            self.fade_deadline = Some(Instant::now() + self.palette_fade);
         }
 
         if let Some(deadline) = self.fade_deadline {
