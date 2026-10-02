@@ -703,8 +703,8 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     let timeout = Duration::from_millis(run.timeout_ms.max(1));
     let mut engines = Vec::with_capacity(dims.len());
     for (dim, output_group) in dims.iter().zip(&outputs) {
-        let engine =
-            scene::SceneEngine::load(&run.script, dim.0, dim.1, timeout, run.palette.as_deref())?;
+        let engine = scene::SceneEngine::load(&run.script, dim.0, dim.1, timeout, run.palette.as_deref())?
+            .with_palette_fade(Duration::from_millis(run.palette_fade));
         engines.push((engine, *dim, output_group.clone()));
     }
 
@@ -720,7 +720,8 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     let start = std::time::Instant::now();
 
     /* Entry transition: only the first frame uses it, and the loop waits for it to finish so
-       the following instant frames do not cut it off. */
+       the following instant frames do not cut it off. The extra margin covers the time the
+       daemon spends receiving and starting the animation. */
     let entry_transition = make_transition(&run.transition_args());
     let entry_wait = if matches!(
         entry_transition.transition_type,
@@ -728,7 +729,7 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     ) {
         Duration::ZERO
     } else {
-        Duration::from_secs_f64(f64::from(run.transition_duration).max(0.0))
+        Duration::from_secs_f64(f64::from(run.transition_duration).max(0.0) + 0.25)
     };
 
     eprintln!(
@@ -737,6 +738,7 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     );
 
     let mut first_frame = vec![true; engines.len()];
+    let mut entry_deadline: Option<std::time::Instant> = None;
 
     loop {
         let frame_start = std::time::Instant::now();
@@ -767,16 +769,25 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
                 )
             });
             send_scene_frame(bytes, *dim, format, output_group, &path, namespace, transition)?;
+
+            // The entry animation only starts once the daemon receives this frame, so the wait
+            // is measured from here: rendering and sending a scene frame can take most of the
+            // transition otherwise, and the next instant frame would cut the animation.
+            if sent_first && entry_deadline.is_none() && entry_wait > Duration::ZERO {
+                entry_deadline = Some(std::time::Instant::now() + entry_wait);
+            }
         }
 
-        let elapsed = frame_start.elapsed();
-        let budget = if sent_first && entry_wait > Duration::ZERO {
-            entry_wait
+        if let Some(deadline) = entry_deadline.take() {
+            let now = std::time::Instant::now();
+            if now < deadline {
+                std::thread::sleep(deadline - now);
+            }
         } else {
-            interval
-        };
-        if elapsed < budget {
-            std::thread::sleep(budget - elapsed);
+            let elapsed = frame_start.elapsed();
+            if elapsed < interval {
+                std::thread::sleep(interval - elapsed);
+            }
         }
     }
 }

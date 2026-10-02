@@ -391,6 +391,17 @@ pub enum TransitionType {
     Dissolve = 9,
     Clock = 10,
     Zoom = 11,
+    Pixelate = 12,
+    Ripple = 13,
+    Blinds = 14,
+    Spiral = 15,
+    Static = 16,
+    Parallax = 17,
+    ParallaxLeft = 18,
+    ParallaxRight = 19,
+    ParallaxInvert = 20,
+    Melt = 21,
+    Shatter = 22,
 }
 
 #[derive(Debug, Clone)]
@@ -468,7 +479,19 @@ impl Transition {
             8 => TransitionType::Decrypt,
             9 => TransitionType::Dissolve,
             10 => TransitionType::Clock,
-            _ => TransitionType::Zoom,
+            11 => TransitionType::Zoom,
+            12 => TransitionType::Pixelate,
+            13 => TransitionType::Ripple,
+            14 => TransitionType::Blinds,
+            15 => TransitionType::Spiral,
+            16 => TransitionType::Static,
+            17 => TransitionType::Parallax,
+            18 => TransitionType::ParallaxLeft,
+            19 => TransitionType::ParallaxRight,
+            20 => TransitionType::ParallaxInvert,
+            21 => TransitionType::Melt,
+            22 => TransitionType::Shatter,
+            _ => TransitionType::None,
         };
         let duration = f32::from_ne_bytes(bytes[1..5].try_into().unwrap());
         let step = NonZeroU8::new(bytes[5]).expect("received step of 0");

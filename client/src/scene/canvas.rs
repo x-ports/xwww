@@ -16,6 +16,9 @@ use tiny_skia::{
     Transform,
 };
 
+/// Cache key for scaled assets: canonical path, target size and optional tint.
+type ScaledKey = (PathBuf, u32, u32, Option<[u8; 4]>);
+
 /// A drawing surface for a single output.
 pub struct Canvas {
     pixmap: Pixmap,
@@ -29,11 +32,15 @@ pub struct Canvas {
     /// Decoded assets, keyed by canonical path.
     assets: HashMap<PathBuf, image::RgbaImage>,
     /// Assets already scaled to a draw size (the tint is part of the key).
-    scaled: HashMap<(PathBuf, u32, u32, Option<[u8; 4]>), Pixmap>,
+    scaled: HashMap<ScaledKey, Pixmap>,
     /// Directories from which scenes may load images (canonicalized).
     allowed: Vec<PathBuf>,
     /// System font database, shared by every canvas and loaded once per process.
     fonts: Arc<fontdb::Database>,
+    /// Previous frame (start of the palette crossfade).
+    fade_from: Option<Pixmap>,
+    /// New frame (end of the palette crossfade), restored when the fade ends.
+    fade_to: Option<Pixmap>,
     /// Set by every operation that touches pixels; cleared by [`Canvas::take_dirty`].
     dirty: bool,
 }
@@ -55,6 +62,8 @@ impl Canvas {
             scaled: HashMap::new(),
             allowed: Vec::new(),
             fonts: system_fonts(),
+            fade_from: None,
+            fade_to: None,
             dirty: false,
         })
     }
@@ -64,6 +73,43 @@ impl Canvas {
     /// The frame loop uses it to skip re-sending identical frames to the daemon.
     pub fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
+    }
+
+    /// Stores a copy of the current surface as the start of the crossfade.
+    pub fn save_fade_from(&mut self) {
+        self.fade_from = Some(self.pixmap.clone());
+    }
+
+    /// Stores a copy of the current surface as the end of the crossfade.
+    pub fn save_fade_to(&mut self) {
+        self.fade_to = Some(self.pixmap.clone());
+    }
+
+    /// Rebuilds the surface as the new frame with the old one composited on top at `alpha`
+    /// (`1.0` fully visible, `0.0` invisible). Used to fade out the previous palette frame.
+    /// No-op without both saved frames.
+    pub fn draw_fade(&mut self, alpha: f32) {
+        let (Some(from), Some(to)) = (self.fade_from.as_ref(), self.fade_to.as_ref()) else {
+            return;
+        };
+        self.pixmap.data_mut().copy_from_slice(to.data());
+        let paint = PixmapPaint {
+            opacity: alpha.clamp(0.0, 1.0),
+            ..PixmapPaint::default()
+        };
+        self.pixmap
+            .draw_pixmap(0, 0, from.as_ref(), &paint, Transform::identity(), None);
+        self.dirty = true;
+    }
+
+    /// Restores the clean new frame and drops both saved frames.
+    pub fn clear_fade(&mut self) {
+        if let Some(to) = &self.fade_to {
+            self.pixmap.data_mut().copy_from_slice(to.data());
+            self.dirty = true;
+        }
+        self.fade_from = None;
+        self.fade_to = None;
     }
 
     /// Allows scenes to load images from `dir` (and only from it).

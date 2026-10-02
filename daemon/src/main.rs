@@ -682,7 +682,8 @@ pub extern "C" fn main(
         Ok(Some(cli)) => cli,
         Ok(None) => return 0,
         Err(e) => {
-            let stderr = rustix::stdio::stderr();
+            // SAFETY: we only borrow the process stderr for the duration of the write.
+            let stderr = unsafe { rustix::stdio::stderr() };
             let msg = e.to_string();
             let bufs = [
                 rustix::io::IoSlice::new(msg.as_bytes()),

@@ -267,6 +267,26 @@ impl SceneRuntime {
     pub fn take_dirty(&self) -> bool {
         self.canvas.borrow_mut().take_dirty()
     }
+
+    /// Stores the current canvas as the start of the crossfade.
+    pub fn save_fade_from(&self) {
+        self.canvas.borrow_mut().save_fade_from();
+    }
+
+    /// Stores the current canvas as the end of the crossfade.
+    pub fn save_fade_to(&self) {
+        self.canvas.borrow_mut().save_fade_to();
+    }
+
+    /// Rebuilds the canvas as the new frame with the old one faded on top.
+    pub fn draw_fade(&self, alpha: f32) {
+        self.canvas.borrow_mut().draw_fade(alpha);
+    }
+
+    /// Restores the clean new frame and drops both saved frames.
+    pub fn clear_fade(&self) {
+        self.canvas.borrow_mut().clear_fade();
+    }
 }
 
 /// Converts a QuickJS exception into a conversion error carrying its message, so the message

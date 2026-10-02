@@ -669,6 +669,17 @@ pub fn make_transition(args: &cli::TransitionArgs) -> ipc::Transition {
         cli::TransitionType::Dissolve => ipc::TransitionType::Dissolve,
         cli::TransitionType::Clock => ipc::TransitionType::Clock,
         cli::TransitionType::Zoom => ipc::TransitionType::Zoom,
+        cli::TransitionType::Pixelate => ipc::TransitionType::Pixelate,
+        cli::TransitionType::Ripple => ipc::TransitionType::Ripple,
+        cli::TransitionType::Blinds => ipc::TransitionType::Blinds,
+        cli::TransitionType::Spiral => ipc::TransitionType::Spiral,
+        cli::TransitionType::Static => ipc::TransitionType::Static,
+        cli::TransitionType::Parallax => ipc::TransitionType::Parallax,
+        cli::TransitionType::ParallaxLeft => ipc::TransitionType::ParallaxLeft,
+        cli::TransitionType::ParallaxRight => ipc::TransitionType::ParallaxRight,
+        cli::TransitionType::ParallaxInvert => ipc::TransitionType::ParallaxInvert,
+        cli::TransitionType::Melt => ipc::TransitionType::Melt,
+        cli::TransitionType::Shatter => ipc::TransitionType::Shatter,
         cli::TransitionType::Right => {
             angle = 0.0;
             ipc::TransitionType::Wipe

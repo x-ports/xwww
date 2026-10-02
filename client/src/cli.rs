@@ -98,6 +98,17 @@ pub enum TransitionType {
     Glitch,
     Decrypt,
     Dissolve,
+    Pixelate,
+    Ripple,
+    Blinds,
+    Spiral,
+    Static,
+    Parallax,
+    ParallaxLeft,
+    ParallaxRight,
+    ParallaxInvert,
+    Melt,
+    Shatter,
     Clock,
     Zoom,
 }
@@ -126,8 +137,19 @@ impl std::str::FromStr for TransitionType {
             "dissolve" => Ok(Self::Dissolve),
             "clock" => Ok(Self::Clock),
             "zoom" => Ok(Self::Zoom),
+            "pixelate" => Ok(Self::Pixelate),
+            "ripple" => Ok(Self::Ripple),
+            "blinds" => Ok(Self::Blinds),
+            "spiral" => Ok(Self::Spiral),
+            "static" => Ok(Self::Static),
+            "parallax" => Ok(Self::Parallax),
+            "parallax-left" => Ok(Self::ParallaxLeft),
+            "parallax-right" => Ok(Self::ParallaxRight),
+            "parallax-invert" => Ok(Self::ParallaxInvert),
+            "melt" => Ok(Self::Melt),
+            "shatter" => Ok(Self::Shatter),
             _ => Err("unrecognized transition type.\nValid transitions are:\n\
-                     \tsimple | fade | left | right | top | bottom | wipe | grow | center | outer | random | wave | glitch | decrypt | dissolve | clock | zoom\n\
+                     \tsimple | fade | left | right | top | bottom | wipe | grow | center | outer | random | wave | glitch | decrypt | dissolve | clock | zoom | pixelate | ripple | blinds | spiral | static | parallax | parallax-left | parallax-right | parallax-invert | melt | shatter\n\
                      see xwww img --help for more details"),
         }
     }
@@ -1010,6 +1032,14 @@ pub struct SceneRun {
     /// Frames per second to render and send.
     #[arg(long, default_value = "10")]
     pub fps: u32,
+
+    /// Crossfade duration when the active palette changes, in milliseconds (0 disables it).
+    ///
+    /// While the crossfade runs, the previous frame is blended over the new one so palette
+    /// switches transition smoothly instead of snapping. It looks best when the frame rate
+    /// provides several frames during the crossfade.
+    #[arg(long, env = "XWWW_PALETTE_FADE", default_value = "800")]
+    pub palette_fade: u64,
 
     /// Palette source: `xwww[:<path>]`, `equisdots[:<slug>]`, `file:<path>` or `command:<cmd>`.
     ///
