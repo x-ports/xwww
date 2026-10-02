@@ -37,8 +37,10 @@ pub struct Canvas {
     allowed: Vec<PathBuf>,
     /// System font database, shared by every canvas and loaded once per process.
     fonts: Arc<fontdb::Database>,
-    /// Saved frame used by the palette crossfade.
-    snapshot: Option<Pixmap>,
+    /// Previous frame (start of the palette crossfade).
+    fade_from: Option<Pixmap>,
+    /// New frame (end of the palette crossfade), restored when the fade ends.
+    fade_to: Option<Pixmap>,
     /// Set by every operation that touches pixels; cleared by [`Canvas::take_dirty`].
     dirty: bool,
 }
@@ -60,7 +62,8 @@ impl Canvas {
             scaled: HashMap::new(),
             allowed: Vec::new(),
             fonts: system_fonts(),
-            snapshot: None,
+            fade_from: None,
+            fade_to: None,
             dirty: false,
         })
     }
@@ -72,35 +75,41 @@ impl Canvas {
         std::mem::take(&mut self.dirty)
     }
 
-    /// Stores a copy of the current surface as the crossfade source.
-    pub fn save_snapshot(&mut self) {
-        self.snapshot = Some(self.pixmap.clone());
+    /// Stores a copy of the current surface as the start of the crossfade.
+    pub fn save_fade_from(&mut self) {
+        self.fade_from = Some(self.pixmap.clone());
     }
 
-    /// Draws the saved snapshot over the surface with `alpha` (`1.0` fully visible, `0.0`
-    /// invisible). Used to fade out the previous palette frame. No-op without a snapshot.
-    pub fn draw_snapshot(&mut self, alpha: f32) {
-        let Some(snapshot) = &self.snapshot else {
+    /// Stores a copy of the current surface as the end of the crossfade.
+    pub fn save_fade_to(&mut self) {
+        self.fade_to = Some(self.pixmap.clone());
+    }
+
+    /// Rebuilds the surface as the new frame with the old one composited on top at `alpha`
+    /// (`1.0` fully visible, `0.0` invisible). Used to fade out the previous palette frame.
+    /// No-op without both saved frames.
+    pub fn draw_fade(&mut self, alpha: f32) {
+        let (Some(from), Some(to)) = (self.fade_from.as_ref(), self.fade_to.as_ref()) else {
             return;
         };
+        self.pixmap.data_mut().copy_from_slice(to.data());
         let paint = PixmapPaint {
             opacity: alpha.clamp(0.0, 1.0),
             ..PixmapPaint::default()
         };
-        self.pixmap.draw_pixmap(
-            0,
-            0,
-            snapshot.as_ref(),
-            &paint,
-            Transform::identity(),
-            None,
-        );
+        self.pixmap
+            .draw_pixmap(0, 0, from.as_ref(), &paint, Transform::identity(), None);
         self.dirty = true;
     }
 
-    /// Drops the saved snapshot.
-    pub fn clear_snapshot(&mut self) {
-        self.snapshot = None;
+    /// Restores the clean new frame and drops both saved frames.
+    pub fn clear_fade(&mut self) {
+        if let Some(to) = &self.fade_to {
+            self.pixmap.data_mut().copy_from_slice(to.data());
+            self.dirty = true;
+        }
+        self.fade_from = None;
+        self.fade_to = None;
     }
 
     /// Allows scenes to load images from `dir` (and only from it).

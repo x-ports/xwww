@@ -738,6 +738,7 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     );
 
     let mut first_frame = vec![true; engines.len()];
+    let mut entry_deadline: Option<std::time::Instant> = None;
 
     loop {
         let frame_start = std::time::Instant::now();
@@ -768,16 +769,25 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
                 )
             });
             send_scene_frame(bytes, *dim, format, output_group, &path, namespace, transition)?;
+
+            // The entry animation only starts once the daemon receives this frame, so the wait
+            // is measured from here: rendering and sending a scene frame can take most of the
+            // transition otherwise, and the next instant frame would cut the animation.
+            if sent_first && entry_deadline.is_none() && entry_wait > Duration::ZERO {
+                entry_deadline = Some(std::time::Instant::now() + entry_wait);
+            }
         }
 
-        let elapsed = frame_start.elapsed();
-        let budget = if sent_first && entry_wait > Duration::ZERO {
-            entry_wait
+        if let Some(deadline) = entry_deadline.take() {
+            let now = std::time::Instant::now();
+            if now < deadline {
+                std::thread::sleep(deadline - now);
+            }
         } else {
-            interval
-        };
-        if elapsed < budget {
-            std::thread::sleep(budget - elapsed);
+            let elapsed = frame_start.elapsed();
+            if elapsed < interval {
+                std::thread::sleep(interval - elapsed);
+            }
         }
     }
 }

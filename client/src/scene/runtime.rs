@@ -268,19 +268,24 @@ impl SceneRuntime {
         self.canvas.borrow_mut().take_dirty()
     }
 
-    /// Stores the current canvas as the crossfade source.
-    pub fn save_snapshot(&self) {
-        self.canvas.borrow_mut().save_snapshot();
+    /// Stores the current canvas as the start of the crossfade.
+    pub fn save_fade_from(&self) {
+        self.canvas.borrow_mut().save_fade_from();
     }
 
-    /// Blends the saved snapshot over the canvas.
-    pub fn draw_snapshot(&self, alpha: f32) {
-        self.canvas.borrow_mut().draw_snapshot(alpha);
+    /// Stores the current canvas as the end of the crossfade.
+    pub fn save_fade_to(&self) {
+        self.canvas.borrow_mut().save_fade_to();
     }
 
-    /// Drops the saved snapshot.
-    pub fn clear_snapshot(&self) {
-        self.canvas.borrow_mut().clear_snapshot();
+    /// Rebuilds the canvas as the new frame with the old one faded on top.
+    pub fn draw_fade(&self, alpha: f32) {
+        self.canvas.borrow_mut().draw_fade(alpha);
+    }
+
+    /// Restores the clean new frame and drops both saved frames.
+    pub fn clear_fade(&self) {
+        self.canvas.borrow_mut().clear_fade();
     }
 }
 

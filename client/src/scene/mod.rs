@@ -121,10 +121,11 @@ impl SceneEngine {
     pub fn render(&mut self, t: f64) -> Result<(), String> {
         let palette = self.palette.current().clone();
         let digest = palette_digest(&palette);
-        if self.last_palette != Some(digest) {
+        let changed = self.last_palette != Some(digest);
+        if changed {
             self.last_palette = Some(digest);
             if !self.palette_fade.is_zero() {
-                self.runtime.save_snapshot();
+                self.runtime.save_fade_from();
                 self.fade_deadline = Some(Instant::now() + self.palette_fade);
             }
         }
@@ -132,15 +133,21 @@ impl SceneEngine {
         let setup_done = &mut self.setup_done;
         self.runtime.render(t, &palette, setup_done)?;
 
+        // The frame the scene just painted is the end of the crossfade. Every fade frame is
+        // rebuilt from it, so the surface never keeps a blend of the old palette.
+        if changed && self.fade_deadline.is_some() {
+            self.runtime.save_fade_to();
+        }
+
         if let Some(deadline) = self.fade_deadline {
             let now = Instant::now();
             if now >= deadline {
-                self.runtime.clear_snapshot();
+                self.runtime.clear_fade();
                 self.fade_deadline = None;
             } else {
                 let total = self.palette_fade.as_secs_f32().max(f32::EPSILON);
                 let remaining = deadline.duration_since(now).as_secs_f32() / total;
-                self.runtime.draw_snapshot(remaining);
+                self.runtime.draw_fade(remaining);
             }
         }
         Ok(())
