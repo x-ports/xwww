@@ -3,6 +3,26 @@
 All notable changes to xwww are documented here.
 Dates use YYYY-MM-DD.
 
+## [2026-10-02] - 0.13.1
+
+### Fixed
+
+- **Scene frames are actually presented.** The daemon commits a transition whose effect already
+  finished (instant scene frames) without waiting for its frame budget, and the client sends those
+  instant frames at 144 fps. Previously each one waited a full second and the next frame replaced
+  its animator before it was drawn, so animated scenes looked frozen on screen and palette changes
+  only appeared after re-applying the scene, while `xwww screenshot` already showed the new frames.
+- **Palette crossfade on animated scenes.** The crossfade target is refreshed with every new frame,
+  so the scene keeps moving while it fades, and the clean frame is restored when the fade ends
+  instead of leaving a blend with the previous palette.
+
+### Changed
+
+- Scene text runs are cached per glyph, size, family, anchor and color, so scenes that redraw many
+  strings (glyph rain, cards) lay them out once instead of going through the font stack every
+  frame.
+- Output conversion for fully opaque canvases skips alpha compositing.
+
 ## [2026-10-02] - 0.13.0
 
 ### Added

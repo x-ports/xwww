@@ -132,11 +132,9 @@ impl SceneEngine {
         let setup_done = &mut self.setup_done;
         self.runtime.render(t, &palette, setup_done)?;
 
-        // The frame the scene just painted is the end of the crossfade. Every fade frame is
-        // rebuilt from it, so the surface never keeps a blend of the old palette. The fade
-        // clock starts here: redrawing the scene can take most of the fade otherwise.
+        // The fade clock starts after the scene painted the new frame: redrawing the scene can
+        // take most of the fade otherwise.
         if changed && !self.palette_fade.is_zero() {
-            self.runtime.save_fade_to();
             self.fade_deadline = Some(Instant::now() + self.palette_fade);
         }
 
@@ -146,6 +144,10 @@ impl SceneEngine {
                 self.runtime.clear_fade();
                 self.fade_deadline = None;
             } else {
+                // Refresh the target with the latest frame, so animated scenes keep moving
+                // under the fade instead of freezing for its duration, and rebuild the surface
+                // from that clean frame so no blend of the old palette is left behind.
+                self.runtime.save_fade_to();
                 let total = self.palette_fade.as_secs_f32().max(f32::EPSILON);
                 let remaining = deadline.duration_since(now).as_secs_f32() / total;
                 self.runtime.draw_fade(remaining);
