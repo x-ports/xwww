@@ -122,6 +122,14 @@ impl SceneEngine {
         let palette = self.palette.current().clone();
         let digest = palette_digest(&palette);
         let changed = self.last_palette != Some(digest);
+
+        // A running crossfade restores its clean target before the scene paints: scenes that
+        // repaint every frame evolve from their own last frame, and scenes that only repaint on
+        // palette changes keep a clean surface instead of saving the blend as the new target.
+        if self.fade_deadline.is_some() {
+            self.runtime.restore_fade_target();
+        }
+
         if changed {
             self.last_palette = Some(digest);
             if !self.palette_fade.is_zero() {
@@ -140,14 +148,15 @@ impl SceneEngine {
 
         if let Some(deadline) = self.fade_deadline {
             let now = Instant::now();
+            // The target is the frame just painted (animated scene) or the restored clean one
+            // (static scene); the previous frame is composited on top while it fades out.
+            self.runtime.save_fade_to();
             if now >= deadline {
+                // Keep the latest frame as the final target before dropping the fade state, so
+                // animated scenes do not lose the work done on this frame.
                 self.runtime.clear_fade();
                 self.fade_deadline = None;
             } else {
-                // Refresh the target with the latest frame, so animated scenes keep moving
-                // under the fade instead of freezing for its duration, and rebuild the surface
-                // from that clean frame so no blend of the old palette is left behind.
-                self.runtime.save_fade_to();
                 let total = self.palette_fade.as_secs_f32().max(f32::EPSILON);
                 let remaining = deadline.duration_since(now).as_secs_f32() / total;
                 self.runtime.draw_fade(remaining);
@@ -336,6 +345,50 @@ mod tests {
         );
 
         // Halfway through the fade the frame is a blend of both palettes.
+        std::thread::sleep(Duration::from_millis(300));
+        engine.render(0.4).unwrap();
+        let blended = pixel(&engine, 0)[0];
+        assert!((60..=200).contains(&blended), "expected a blend, got {blended}");
+
+        // After the fade the new palette is exact.
+        std::thread::sleep(Duration::from_millis(400));
+        engine.render(0.8).unwrap();
+        assert_eq!(pixel(&engine, 0), [255, 255, 255]);
+    }
+
+    #[test]
+    fn palette_change_crossfades_a_scene_that_only_repaints_on_changes() {
+        let path = scene_file(
+            "fade-static",
+            r##"let signature = null;
+            function render(t, ctx) {
+                const next = ctx.palette.background.hex;
+                if (next === signature) {
+                    return;
+                }
+                signature = next;
+                canvas.clear(next);
+            }"##,
+        );
+        let palette = palette_file("fade-static", &full_palette("a", "#000000"));
+        let spec = format!("file:{}", palette.display());
+        let mut engine = SceneEngine::load(&path, 4, 4, Duration::from_millis(200), Some(&spec))
+            .unwrap()
+            .with_palette_fade(Duration::from_millis(600));
+
+        engine.render(0.0).unwrap();
+        assert_eq!(pixel(&engine, 0), [0, 0, 0]);
+
+        std::fs::write(&palette, full_palette("a", "#ffffff")).unwrap();
+        std::thread::sleep(Duration::from_millis(1100));
+        engine.render(0.1).unwrap();
+        assert!(
+            pixel(&engine, 0)[0] < 60,
+            "the old frame should still be dominant right after the change"
+        );
+
+        // The scene does not repaint on this frame, but the fade must keep advancing instead of
+        // saving the blended surface as the new target.
         std::thread::sleep(Duration::from_millis(300));
         engine.render(0.4).unwrap();
         let blended = pixel(&engine, 0)[0];

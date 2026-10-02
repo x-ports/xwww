@@ -15,6 +15,9 @@ Dates use YYYY-MM-DD.
 - **Palette crossfade on animated scenes.** The crossfade target is refreshed with every new frame,
   so the scene keeps moving while it fades, and the clean frame is restored when the fade ends
   instead of leaving a blend with the previous palette.
+- **Palette crossfade with static scenes.** The crossfade restores its clean target before the
+  scene paints, so scenes that only redraw when their inputs change (card blocks, dashboards) pick
+  up the new palette while fading instead of keeping the old colors until the scene is re-applied.
 
 ### Changed
 
