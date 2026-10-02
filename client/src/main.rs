@@ -703,8 +703,8 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     let timeout = Duration::from_millis(run.timeout_ms.max(1));
     let mut engines = Vec::with_capacity(dims.len());
     for (dim, output_group) in dims.iter().zip(&outputs) {
-        let engine =
-            scene::SceneEngine::load(&run.script, dim.0, dim.1, timeout, run.palette.as_deref())?;
+        let engine = scene::SceneEngine::load(&run.script, dim.0, dim.1, timeout, run.palette.as_deref())?
+            .with_palette_fade(Duration::from_millis(run.palette_fade));
         engines.push((engine, *dim, output_group.clone()));
     }
 

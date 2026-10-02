@@ -6,8 +6,6 @@ be implemented entirely in the client; *(daemon)* require changes to the daemon 
 ## Effects
 
 - **Ken Burns** — slow pan/zoom over static images *(daemon)*.
-- **Pixelate / mosaic** — a blocky reveal transition *(daemon, easy — similar to `decrypt` but in
-  raster order)*.
 - **Scanline / CRT** — a cathode-ray style reveal *(daemon)*.
 - **Gradient / blur reveal** — start blurred and sharpen *(client, build on `--blur`)*.
 - **Kaleidoscope** — mirror-symmetric reveal *(daemon)*.

@@ -70,6 +70,7 @@ xwww scene run    scene.js --fps 10 --palette equisdots       # run until interr
 | `--transition-fps` | `144` | `run` | Frame rate of the entry transition. |
 | `--transition-step` | `255` | `run` | Step for `simple` (255 = instant). |
 | `--transition-pos` / `--transition-angle` / `--transition-bezier` / `--transition-wave` | as `img` | `run` | Shape parameters of the entry transition. |
+| `--palette-fade` | `600` | `run` | Crossfade in milliseconds when the active palette changes (`0` disables it). The previous frame is blended over the new one while it fades out. |
 
 `xwww scene` is declared as a non-standard command and dispatched before the IPC flow, like
 `Palette`/`Slideshow`/`Screenshot` in the client. Builds without the `scene` feature still show the

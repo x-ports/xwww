@@ -267,6 +267,21 @@ impl SceneRuntime {
     pub fn take_dirty(&self) -> bool {
         self.canvas.borrow_mut().take_dirty()
     }
+
+    /// Stores the current canvas as the crossfade source.
+    pub fn save_snapshot(&self) {
+        self.canvas.borrow_mut().save_snapshot();
+    }
+
+    /// Blends the saved snapshot over the canvas.
+    pub fn draw_snapshot(&self, alpha: f32) {
+        self.canvas.borrow_mut().draw_snapshot(alpha);
+    }
+
+    /// Drops the saved snapshot.
+    pub fn clear_snapshot(&self) {
+        self.canvas.borrow_mut().clear_snapshot();
+    }
 }
 
 /// Converts a QuickJS exception into a conversion error carrying its message, so the message

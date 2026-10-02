@@ -8,8 +8,9 @@ pub mod canvas;
 pub mod providers;
 pub mod runtime;
 
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub use canvas::Canvas;
 pub use providers::PaletteProvider;
@@ -22,6 +23,28 @@ pub struct SceneEngine {
     runtime: SceneRuntime,
     palette: PaletteProvider,
     setup_done: bool,
+    /// Duration of the crossfade when the active palette changes (zero disables it).
+    palette_fade: Duration,
+    /// Digest of the palette used by the latest frame.
+    last_palette: Option<u64>,
+    /// When the running palette crossfade ends.
+    fade_deadline: Option<Instant>,
+}
+
+fn palette_digest(palette: &ScenePalette) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    palette.slug.hash(&mut hasher);
+    palette.name.hash(&mut hasher);
+    palette.background.to_array().hash(&mut hasher);
+    palette.foreground.to_array().hash(&mut hasher);
+    for color in &palette.colors {
+        color.to_array().hash(&mut hasher);
+    }
+    for (name, color) in &palette.roles {
+        name.hash(&mut hasher);
+        color.to_array().hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 impl SceneEngine {
@@ -72,19 +95,55 @@ impl SceneEngine {
         let runtime = SceneRuntime::new(&script, width, height, timeout, &allowed)
             .map_err(|e| format!("{}: {e}", script_path.display()))?;
         let palette = PaletteProvider::new(palette_spec)?;
+        let last_palette = Some(palette_digest(palette.cached()));
 
         Ok(Self {
             runtime,
             palette,
             setup_done: false,
+            palette_fade: Duration::ZERO,
+            last_palette,
+            fade_deadline: None,
         })
     }
 
+    /// Enables a crossfade of `duration` when the active palette changes.
+    #[must_use]
+    pub fn with_palette_fade(mut self, duration: Duration) -> Self {
+        self.palette_fade = duration;
+        self
+    }
+
     /// Renders one frame at time `t` (seconds since the scene started).
+    ///
+    /// When the palette changed since the previous frame and a crossfade is configured, the
+    /// previous frame is blended over the new one while it fades out.
     pub fn render(&mut self, t: f64) -> Result<(), String> {
         let palette = self.palette.current().clone();
+        let digest = palette_digest(&palette);
+        if self.last_palette != Some(digest) {
+            self.last_palette = Some(digest);
+            if !self.palette_fade.is_zero() {
+                self.runtime.save_snapshot();
+                self.fade_deadline = Some(Instant::now() + self.palette_fade);
+            }
+        }
+
         let setup_done = &mut self.setup_done;
-        self.runtime.render(t, &palette, setup_done)
+        self.runtime.render(t, &palette, setup_done)?;
+
+        if let Some(deadline) = self.fade_deadline {
+            let now = Instant::now();
+            if now >= deadline {
+                self.runtime.clear_snapshot();
+                self.fade_deadline = None;
+            } else {
+                let total = self.palette_fade.as_secs_f32().max(f32::EPSILON);
+                let remaining = deadline.duration_since(now).as_secs_f32() / total;
+                self.runtime.draw_snapshot(remaining);
+            }
+        }
+        Ok(())
     }
 
     pub fn with_canvas<R>(&self, f: impl FnOnce(&Canvas) -> R) -> R {
@@ -226,5 +285,55 @@ mod tests {
     fn check_rejects_invalid_scripts() {
         let path = scene_file("syntax", "function render( {");
         assert!(SceneEngine::check(&path).is_err());
+    }
+
+    fn full_palette(name: &str, background: &str) -> String {
+        let mut colors = Vec::new();
+        for i in 0..16 {
+            let value = if i == 0 { background } else { "#101010" };
+            colors.push(format!(r#""color{i}": "{value}""#));
+        }
+        format!(
+            r##"{{"name":"{name}","slug":"{name}","background":"{background}","foreground":"#ffffff","base16":{{{}}}}}"##,
+            colors.join(",")
+        )
+    }
+
+    #[test]
+    fn palette_change_crossfades() {
+        let path = scene_file(
+            "fade",
+            r##"function render(t, ctx) {
+                canvas.clear(ctx.palette.background.hex);
+            }"##,
+        );
+        let palette = palette_file("fade", &full_palette("a", "#000000"));
+        let spec = format!("file:{}", palette.display());
+        let mut engine = SceneEngine::load(&path, 4, 4, Duration::from_millis(200), Some(&spec))
+            .unwrap()
+            .with_palette_fade(Duration::from_millis(600));
+
+        engine.render(0.0).unwrap();
+        assert_eq!(pixel(&engine, 0), [0, 0, 0]);
+
+        // Switch the palette; the provider polls the source once per second.
+        std::fs::write(&palette, full_palette("a", "#ffffff")).unwrap();
+        std::thread::sleep(Duration::from_millis(1100));
+        engine.render(0.1).unwrap();
+        assert!(
+            pixel(&engine, 0)[0] < 60,
+            "the old frame should still be dominant right after the change"
+        );
+
+        // Halfway through the fade the frame is a blend of both palettes.
+        std::thread::sleep(Duration::from_millis(300));
+        engine.render(0.4).unwrap();
+        let blended = pixel(&engine, 0)[0];
+        assert!((60..=200).contains(&blended), "expected a blend, got {blended}");
+
+        // After the fade the new palette is exact.
+        std::thread::sleep(Duration::from_millis(400));
+        engine.render(0.8).unwrap();
+        assert_eq!(pixel(&engine, 0), [255, 255, 255]);
     }
 }

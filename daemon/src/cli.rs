@@ -101,12 +101,14 @@ Options:
     -q|--quiet    will only log errors
     -h|--help     print help
     -V|--version  print version\n";
-                    let stdout = rustix::stdio::stdout();
+                    // SAFETY: we only borrow the process stdout for the duration of the write.
+                    let stdout = unsafe { rustix::stdio::stdout() };
                     _ = rustix::io::write(stdout, msg);
                     return Ok(None);
                 }
                 b"-V" | b"--version" => {
-                    let stdout = rustix::stdio::stdout();
+                    // SAFETY: we only borrow the process stdout for the duration of the write.
+                    let stdout = unsafe { rustix::stdio::stdout() };
                     let bufs = [
                         rustix::io::IoSlice::new(b"xwww-daemon "),
                         rustix::io::IoSlice::new(env!("CARGO_PKG_VERSION").as_bytes()),

@@ -84,6 +84,14 @@ pub enum Effect {
     Dissolve(Dissolve),
     Clock(Clock),
     Zoom(Zoom),
+    Pixelate(Pixelate),
+    Ripple(Ripple),
+    Blinds(Blinds),
+    Spiral(Spiral),
+    Static(Static),
+    Parallax(Parallax),
+    Melt(Melt),
+    Shatter(Shatter),
 }
 
 impl Effect {
@@ -101,6 +109,25 @@ impl Effect {
             TransitionType::Dissolve => Self::Dissolve(Dissolve::new(transition, dimensions)),
             TransitionType::Clock => Self::Clock(Clock::new(transition, dimensions)),
             TransitionType::Zoom => Self::Zoom(Zoom::new(transition, dimensions)),
+            TransitionType::Pixelate => Self::Pixelate(Pixelate::new(transition, dimensions)),
+            TransitionType::Ripple => Self::Ripple(Ripple::new(transition, dimensions)),
+            TransitionType::Blinds => Self::Blinds(Blinds::new(transition, dimensions)),
+            TransitionType::Spiral => Self::Spiral(Spiral::new(transition, dimensions)),
+            TransitionType::Static => Self::Static(Static::new(transition, dimensions)),
+            TransitionType::Parallax => {
+                Self::Parallax(Parallax::new(transition, ParallaxDirection::Up))
+            }
+            TransitionType::ParallaxLeft => {
+                Self::Parallax(Parallax::new(transition, ParallaxDirection::Left))
+            }
+            TransitionType::ParallaxRight => {
+                Self::Parallax(Parallax::new(transition, ParallaxDirection::Right))
+            }
+            TransitionType::ParallaxInvert => {
+                Self::Parallax(Parallax::new(transition, ParallaxDirection::Invert))
+            }
+            TransitionType::Melt => Self::Melt(Melt::new(transition, dimensions)),
+            TransitionType::Shatter => Self::Shatter(Shatter::new(transition, dimensions)),
             TransitionType::None => Self::None(None),
         }
     }
@@ -125,6 +152,14 @@ impl Effect {
             Effect::Dissolve(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
             Effect::Clock(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
             Effect::Zoom(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Pixelate(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Ripple(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Blinds(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Spiral(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Static(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Parallax(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Melt(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Shatter(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
         };
         // we only finish for real if we are doing a None or a Simple transition
         if done {
@@ -143,6 +178,14 @@ impl Effect {
                 Effect::Dissolve(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
                 Effect::Clock(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
                 Effect::Zoom(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Pixelate(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Ripple(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Blinds(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Spiral(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Static(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Parallax(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Melt(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Shatter(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
             };
             return false;
         }
@@ -944,6 +987,723 @@ impl Zoom {
         }
 
         self.seq.finished()
+    }
+}
+
+/// Reveals pixels whose precomputed threshold is already passed by `progress` (`0..=255`).
+/// Used by the threshold-based effects (ripple, blinds, spiral, static, melt).
+fn reveal_by_threshold(
+    canvas: &mut [u8],
+    img: &[u8],
+    thresholds: &[u8],
+    channels: usize,
+    progress: u8,
+) {
+    for (i, &threshold) in thresholds.iter().enumerate() {
+        if threshold <= progress {
+            let off = i * channels;
+            canvas[off..off + channels].copy_from_slice(&img[off..off + channels]);
+        }
+    }
+}
+
+/// Pseudo-random float in `[0, 1)`.
+fn rand_unit(rng: &mut u64) -> f32 {
+    (xorshift(rng) >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// `pixelate` transition: the new image appears as a grid of flat color blocks in raster order, so
+/// it looks like the picture is being rendered at low resolution; the finishing `simple` pass then
+/// sharpens the remaining difference.
+struct Pixelate {
+    start: f64,
+    duration: f64,
+    cols: usize,
+    rows: usize,
+    block_size: usize,
+    averages: Option<Box<[[u8; 4]]>>,
+    revealed: usize,
+    step: NonZeroU8,
+}
+
+impl Pixelate {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let block_size = 48usize;
+        let cols = (dimensions.0 as usize).div_ceil(block_size);
+        let rows = (dimensions.1 as usize).div_ceil(block_size);
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            cols,
+            rows,
+            block_size,
+            averages: Option::None,
+            revealed: 0,
+            step: transition.step,
+        }
+    }
+
+    fn averages(&mut self, img: &[u8], width: usize, height: usize, channels: usize) {
+        if self.averages.is_some() {
+            return;
+        }
+        let block = self.block_size;
+        let mut averages = Vec::with_capacity(self.cols * self.rows);
+        for by in 0..self.rows {
+            for bx in 0..self.cols {
+                let x0 = bx * block;
+                let y0 = by * block;
+                let x1 = (x0 + block).min(width);
+                let y1 = (y0 + block).min(height);
+                let mut sum = [0u64; 4];
+                let mut count = 0u64;
+                for y in y0..y1 {
+                    let start = y * width * channels + x0 * channels;
+                    let end = y * width * channels + x1 * channels;
+                    for pixel in img[start..end].chunks_exact(channels) {
+                        for (c, value) in pixel.iter().enumerate() {
+                            sum[c] += u64::from(*value);
+                        }
+                        count += 1;
+                    }
+                }
+                let mut average = [0u8; 4];
+                let divisor = count.max(1);
+                for (c, value) in average.iter_mut().enumerate().take(channels) {
+                    *value = (sum[c] / divisor) as u8;
+                }
+                averages.push(average);
+            }
+        }
+        self.averages = Some(averages.into_boxed_slice());
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let elapsed = elapsed(self.start);
+        let t = (elapsed / self.duration).clamp(0.0, 1.0);
+        let channels = pixel_format.channels() as usize;
+        let total = self.cols * self.rows;
+        let target = (t * total as f64) as usize;
+
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let dim = wallpaper.get_dimensions();
+            let width = dim.0 as usize;
+            let height = dim.1 as usize;
+            self.averages(img, width, height, channels);
+
+            let averages = self.averages.as_ref().expect("just computed");
+            let new_blocks: Vec<usize> = (self.revealed..target).collect();
+            let cols = self.cols;
+            let block_size = self.block_size;
+            let stride = width * channels;
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for &block in &new_blocks {
+                    let row = block / cols;
+                    let col = block % cols;
+                    let x0 = col * block_size;
+                    let y0 = row * block_size;
+                    let x1 = (x0 + block_size).min(width);
+                    let y1 = (y0 + block_size).min(height);
+                    let color = averages[block];
+                    for y in y0..y1 {
+                        let off = y * stride + x0 * channels;
+                        let len = (x1 - x0) * channels;
+                        for pixel in canvas[off..off + len].chunks_exact_mut(channels) {
+                            pixel.copy_from_slice(&color[..channels]);
+                        }
+                    }
+                }
+            });
+        }
+        self.revealed = target;
+
+        t >= 1.0
+    }
+}
+
+/// `ripple` transition: concentric wavy rings reveal the new image from `--transition-pos`.
+struct Ripple {
+    start: f64,
+    duration: f64,
+    thresholds: Box<[u8]>,
+    step: NonZeroU8,
+}
+
+impl Ripple {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let (cx, cy) = transition.pos.to_pixel(dimensions, transition.invert_y);
+        let max_dist = max_corner_distance(cx, cy, width, height);
+        let mut thresholds = vec![255u8; width * height];
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - cx;
+                let dy = y as f32 - cy;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let normalized = (dist / max_dist).clamp(0.0, 1.0);
+                let wave = 0.06 * (dist * 0.05).sin();
+                let threshold = (normalized + wave).clamp(0.0, 1.0);
+                thresholds[y * width + x] = (threshold * 255.0) as u8;
+            }
+        }
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            thresholds: thresholds.into_boxed_slice(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let progress = (t * 255.0) as u8;
+        let channels = pixel_format.channels() as usize;
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                reveal_by_threshold(canvas, img, &self.thresholds, channels, progress);
+            });
+        }
+        t >= 1.0
+    }
+}
+
+fn max_corner_distance(cx: f32, cy: f32, width: usize, height: usize) -> f32 {
+    let mut max = 0.0f32;
+    for (x, y) in [
+        (0.0f32, 0.0f32),
+        (width as f32, 0.0),
+        (0.0, height as f32),
+        (width as f32, height as f32),
+    ] {
+        let d = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+        if d > max {
+            max = d;
+        }
+    }
+    max.max(1.0)
+}
+
+/// `blinds` transition: horizontal bands open in staggered order, like venetian blinds.
+struct Blinds {
+    start: f64,
+    duration: f64,
+    thresholds: Box<[u8]>,
+    step: NonZeroU8,
+}
+
+impl Blinds {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let bands = 24usize;
+        let band_height = (height / bands).max(1);
+        let mut thresholds = vec![255u8; width * height];
+        for y in 0..height {
+            let band = y / band_height;
+            let within = (y % band_height) as f32 / band_height as f32;
+            let within = if band.is_multiple_of(2) {
+                within
+            } else {
+                1.0 - within
+            };
+            let threshold = ((band as f32 + within * 0.8) / bands as f32).clamp(0.0, 1.0);
+            let value = (threshold * 255.0) as u8;
+            for x in 0..width {
+                thresholds[y * width + x] = value;
+            }
+        }
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            thresholds: thresholds.into_boxed_slice(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let progress = (t * 255.0) as u8;
+        let channels = pixel_format.channels() as usize;
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                reveal_by_threshold(canvas, img, &self.thresholds, channels, progress);
+            });
+        }
+        t >= 1.0
+    }
+}
+
+/// `spiral` transition: an angular sweep with a radius offset, like a spiral arm unwinding.
+struct Spiral {
+    start: f64,
+    duration: f64,
+    thresholds: Box<[u8]>,
+    step: NonZeroU8,
+}
+
+impl Spiral {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let (cx, cy) = transition.pos.to_pixel(dimensions, transition.invert_y);
+        let max_dist = max_corner_distance(cx, cy, width, height);
+        let mut thresholds = vec![255u8; width * height];
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - cx;
+                let dy = y as f32 - cy;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let mut angle = dy.atan2(dx);
+                if angle < 0.0 {
+                    angle += core::f32::consts::TAU;
+                }
+                let threshold = ((angle / core::f32::consts::TAU) + (dist / max_dist) * 2.0)
+                    .fract()
+                    .clamp(0.0, 1.0);
+                thresholds[y * width + x] = (threshold * 255.0) as u8;
+            }
+        }
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            thresholds: thresholds.into_boxed_slice(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let progress = (t * 255.0) as u8;
+        let channels = pixel_format.channels() as usize;
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                reveal_by_threshold(canvas, img, &self.thresholds, channels, progress);
+            });
+        }
+        t >= 1.0
+    }
+}
+
+/// `static` transition: the new image dissolves through television-like static. The reveal follows
+/// a random per-pixel threshold, and a shrinking amount of random noise is sprinkled on top.
+struct Static {
+    start: f64,
+    duration: f64,
+    thresholds: Box<[u8]>,
+    rng: u64,
+    step: NonZeroU8,
+}
+
+impl Static {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let total = (dimensions.0 as usize) * (dimensions.1 as usize);
+        let mut rng = seed(dimensions);
+        let thresholds: Vec<u8> = (0..total).map(|_| (xorshift(&mut rng) & 0xff) as u8).collect();
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            thresholds: thresholds.into_boxed_slice(),
+            rng: seed(dimensions),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let elapsed = elapsed(self.start);
+        let t = (elapsed / self.duration).clamp(0.0, 1.0);
+        let progress = (t * 255.0) as u8;
+        let intensity = 1.0 - t;
+        let rng = &mut self.rng;
+        let channels = pixel_format.channels() as usize;
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                reveal_by_threshold(canvas, img, &self.thresholds, channels, progress);
+                if intensity > 0.0 {
+                    let count = (intensity * canvas.len() as f64 / 1200.0) as usize;
+                    for _ in 0..count {
+                        let i = rand_range(rng, canvas.len());
+                        canvas[i] = (xorshift(rng) & 0xff) as u8;
+                    }
+                }
+            });
+        }
+        t >= 1.0
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ParallaxDirection {
+    /// New image pushes from the bottom, the old one drifts up slower.
+    Up,
+    /// New image pushes from the left, the old one drifts right slower.
+    Left,
+    /// New image pushes from the right, the old one drifts left slower.
+    Right,
+    /// Horizontal push where the old image follows the new direction instead of lagging.
+    Invert,
+}
+
+/// `parallax*` transitions: the new image slides in while the old one moves at a different speed,
+/// giving a depth effect during the push.
+struct Parallax {
+    start: f64,
+    seq: AnimationSequence,
+    dir: ParallaxDirection,
+    old: Option<Box<[u8]>>,
+    step: NonZeroU8,
+}
+
+impl Parallax {
+    fn new(transition: &Transition, dir: ParallaxDirection) -> Self {
+        let (seq, start) = bezier_seq(transition, 0.0, 1.0);
+        Self {
+            start,
+            seq,
+            dir,
+            old: Option::None,
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let p = self.seq.now();
+        self.seq.advance_to(elapsed(self.start));
+        let dir = self.dir;
+        let old = &mut self.old;
+        let channels = pixel_format.channels() as usize;
+
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let dim = wallpaper.get_dimensions();
+            let width = dim.0 as usize;
+            let height = dim.1 as usize;
+            let stride = width * channels;
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                if old.as_ref().is_none_or(|o| o.len() != canvas.len()) {
+                    *old = Some(canvas.to_vec().into_boxed_slice());
+                }
+                let previous = old.as_ref().expect("just filled");
+
+                match dir {
+                    ParallaxDirection::Up => {
+                        let split = ((height as f32) * (1.0 - p)).clamp(0.0, height as f32) as usize;
+                        let shift = (height as f32 * 0.35 * p) as usize;
+                        for y in 0..split {
+                            let src_y = (y + shift).min(height - 1);
+                            let src = src_y * stride;
+                            let dst = y * stride;
+                            canvas[dst..dst + stride]
+                                .copy_from_slice(&previous[src..src + stride]);
+                        }
+                        for y in split..height {
+                            let src_y = y - split;
+                            let src = src_y * stride;
+                            let dst = y * stride;
+                            canvas[dst..dst + stride].copy_from_slice(&img[src..src + stride]);
+                        }
+                    }
+                    ParallaxDirection::Right | ParallaxDirection::Invert => {
+                        let split = ((width as f32) * (1.0 - p)).clamp(0.0, width as f32) as usize;
+                        let shift = (width as f32 * 0.35 * p) as usize;
+                        for y in 0..height {
+                            let row = y * stride;
+                            for x in 0..split {
+                                let src_x = if matches!(dir, ParallaxDirection::Right) {
+                                    (x + shift).min(width - 1)
+                                } else {
+                                    x.saturating_sub(shift)
+                                };
+                                let src = row + src_x * channels;
+                                let dst = row + x * channels;
+                                canvas[dst..dst + channels]
+                                    .copy_from_slice(&previous[src..src + channels]);
+                            }
+                            for x in split..width {
+                                let src = row + (x - split) * channels;
+                                let dst = row + x * channels;
+                                canvas[dst..dst + channels].copy_from_slice(&img[src..src + channels]);
+                            }
+                        }
+                    }
+                    ParallaxDirection::Left => {
+                        let split = ((width as f32) * p).clamp(0.0, width as f32) as usize;
+                        let shift = (width as f32 * 0.35 * p) as usize;
+                        for y in 0..height {
+                            let row = y * stride;
+                            for x in 0..split {
+                                let src_x = x + (width - split);
+                                let src = row + src_x * channels;
+                                let dst = row + x * channels;
+                                canvas[dst..dst + channels].copy_from_slice(&img[src..src + channels]);
+                            }
+                            for x in split..width {
+                                let src_x = x.saturating_sub(shift);
+                                let src = row + src_x * channels;
+                                let dst = row + x * channels;
+                                canvas[dst..dst + channels]
+                                    .copy_from_slice(&previous[src..src + channels]);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        self.seq.finished()
+    }
+}
+
+/// `melt` transition: ragged vertical drips reveal the new image from the top, each column moving
+/// at its own speed.
+struct Melt {
+    start: f64,
+    duration: f64,
+    thresholds: Box<[u8]>,
+    step: NonZeroU8,
+}
+
+impl Melt {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let mut rng = seed(dimensions);
+        let speeds: Vec<f32> = (0..width).map(|_| 0.7 + rand_unit(&mut rng) * 0.7).collect();
+        let mut thresholds = vec![255u8; width * height];
+        for y in 0..height {
+            for x in 0..width {
+                let normalized = y as f32 / height.max(1) as f32;
+                let threshold = (normalized / speeds[x]).clamp(0.0, 1.0);
+                thresholds[y * width + x] = (threshold * 255.0) as u8;
+            }
+        }
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            thresholds: thresholds.into_boxed_slice(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let progress = (t * 255.0) as u8;
+        let channels = pixel_format.channels() as usize;
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                reveal_by_threshold(canvas, img, &self.thresholds, channels, progress);
+            });
+        }
+        t >= 1.0
+    }
+}
+
+/// `shatter` transition: random tiles fly in with a scale/rotation animation until the whole image
+/// is in place, like broken glass reassembling.
+struct Shatter {
+    start: f64,
+    duration: f64,
+    tile_size: usize,
+    cols: usize,
+    rows: usize,
+    order: Box<[u32]>,
+    angles: Box<[f32]>,
+    anim: Box<[f32]>,
+    done: Box<[bool]>,
+    revealed: usize,
+    last: f64,
+    step: NonZeroU8,
+}
+
+const SHATTER_ANIM: f64 = 0.35;
+
+impl Shatter {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let tile_size = 64usize;
+        let cols = (dimensions.0 as usize).div_ceil(tile_size);
+        let rows = (dimensions.1 as usize).div_ceil(tile_size);
+        let total = cols * rows;
+
+        let mut rng = seed(dimensions);
+        let mut order: Vec<u32> = (0..total as u32).collect();
+        for i in (1..total).rev() {
+            let j = rand_range(&mut rng, i + 1);
+            order.swap(i, j);
+        }
+        let angles: Vec<f32> = (0..total).map(|_| (rand_unit(&mut rng) - 0.5) * 1.2).collect();
+
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            tile_size,
+            cols,
+            rows,
+            order: order.into_boxed_slice(),
+            angles: angles.into_boxed_slice(),
+            anim: vec![-1.0f32; total].into_boxed_slice(),
+            done: vec![false; total].into_boxed_slice(),
+            revealed: 0,
+            last: now_f64(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let elapsed = elapsed(self.start);
+        let t = (elapsed / self.duration).clamp(0.0, 1.0);
+        let target = (t * self.order.len() as f64) as usize;
+
+        let now = now_f64();
+        let dt = (now - self.last).clamp(0.0, 0.1);
+        self.last = now;
+
+        for i in self.revealed..target {
+            let tile = self.order[i] as usize;
+            self.anim[tile] = 0.0;
+        }
+        self.revealed = target;
+
+        // Advance the per-tile animation once, then draw every wallpaper with the same state.
+        let mut finished: Vec<usize> = Vec::new();
+        for tile in 0..self.anim.len() {
+            if self.anim[tile] >= 0.0 && self.anim[tile] < 1.0 {
+                self.anim[tile] += (dt / SHATTER_ANIM) as f32;
+                if self.anim[tile] >= 1.0 {
+                    self.anim[tile] = 1.0;
+                    finished.push(tile);
+                }
+            }
+        }
+
+        let tile_size = self.tile_size;
+        let cols = self.cols;
+        let rows = self.rows;
+        let channels = pixel_format.channels() as usize;
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let dim = wallpaper.get_dimensions();
+            let width = dim.0 as usize;
+            let height = dim.1 as usize;
+            let stride = width * channels;
+            let anim = &self.anim;
+            let done = &self.done;
+            let angles = &self.angles;
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for tile in 0..(cols * rows) {
+                    if done[tile] {
+                        continue;
+                    }
+                    let a = anim[tile];
+                    if a < 0.0 {
+                        continue;
+                    }
+                    let tx = tile % cols;
+                    let ty = tile / cols;
+                    let x0 = tx * tile_size;
+                    let y0 = ty * tile_size;
+                    let x1 = (x0 + tile_size).min(width);
+                    let y1 = (y0 + tile_size).min(height);
+
+                    if a >= 1.0 {
+                        for y in y0..y1 {
+                            let off = y * stride + x0 * channels;
+                            let len = (x1 - x0) * channels;
+                            canvas[off..off + len].copy_from_slice(&img[off..off + len]);
+                        }
+                        continue;
+                    }
+
+                    let scale = 0.55 + 0.45 * a;
+                    let (sin, cos) = (-angles[tile] * (1.0 - a)).sin_cos();
+                    let cx = (x0 + x1) as f32 / 2.0;
+                    let cy = (y0 + y1) as f32 / 2.0;
+                    let half = tile_size as f32 / 2.0;
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            let dx = x as f32 - cx;
+                            let dy = y as f32 - cy;
+                            // inverse rotate + scale to find the source pixel
+                            let rx = (dx * cos + dy * sin) / scale + cx;
+                            let ry = (-dx * sin + dy * cos) / scale + cy;
+                            if rx < x0 as f32 || rx >= x1 as f32 || ry < y0 as f32 || ry >= y1 as f32
+                            {
+                                continue;
+                            }
+                            if (rx - cx).abs() > half || (ry - cy).abs() > half {
+                                continue;
+                            }
+                            let src = ry as usize * stride + rx as usize * channels;
+                            let dst = y * stride + x * channels;
+                            canvas[dst..dst + channels].copy_from_slice(&img[src..src + channels]);
+                        }
+                    }
+                }
+            });
+        }
+
+        for tile in finished {
+            self.done[tile] = true;
+        }
+
+        t >= 1.0
     }
 }
 
