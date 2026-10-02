@@ -121,6 +121,14 @@ struct Transition {
 
 impl Transition {
     fn time_to_draw(&self, start: &Timespec) -> Timespec {
+        // An already-finished effect (e.g. instant transitions) only needs the pending buffer
+        // to be attached and committed, so there is nothing to wait for.
+        if self.effect.is_none() {
+            return Timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+        }
         let now = crate::clock::get();
         let elapsed = now - *start;
         timespec_saturating_sub(self.fps_nanos.into_timespec(), elapsed)

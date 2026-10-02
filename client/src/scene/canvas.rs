@@ -19,6 +19,24 @@ use tiny_skia::{
 /// Cache key for scaled assets: canonical path, target size and optional tint.
 type ScaledKey = (PathBuf, u32, u32, Option<[u8; 4]>);
 
+/// Cache key for a rendered text run (the effective alpha is baked into the color).
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct GlyphKey {
+    text: String,
+    size_bits: u32,
+    family: String,
+    anchor: String,
+    bold: bool,
+    color_rgba: [u8; 4],
+}
+
+/// A cached text run and where it lands relative to the caller's anchor point.
+struct Glyph {
+    pixmap: Pixmap,
+    offset_x: f32,
+    offset_y: f32,
+}
+
 /// A drawing surface for a single output.
 pub struct Canvas {
     pixmap: Pixmap,
@@ -33,6 +51,8 @@ pub struct Canvas {
     assets: HashMap<PathBuf, image::RgbaImage>,
     /// Assets already scaled to a draw size (the tint is part of the key).
     scaled: HashMap<ScaledKey, Pixmap>,
+    /// Rendered text runs, so repeated strings (glyph rain, cards) are laid out once.
+    glyphs: HashMap<GlyphKey, Glyph>,
     /// Directories from which scenes may load images (canonicalized).
     allowed: Vec<PathBuf>,
     /// System font database, shared by every canvas and loaded once per process.
@@ -41,6 +61,8 @@ pub struct Canvas {
     fade_from: Option<Pixmap>,
     /// New frame (end of the palette crossfade), restored when the fade ends.
     fade_to: Option<Pixmap>,
+    /// Known to be fully opaque (last `clear` used alpha 255); enables the fast output path.
+    opaque: bool,
     /// Set by every operation that touches pixels; cleared by [`Canvas::take_dirty`].
     dirty: bool,
 }
@@ -60,10 +82,12 @@ impl Canvas {
             path: PathBuilder::new(),
             assets: HashMap::new(),
             scaled: HashMap::new(),
+            glyphs: HashMap::new(),
             allowed: Vec::new(),
             fonts: system_fonts(),
             fade_from: None,
             fade_to: None,
+            opaque: false,
             dirty: false,
         })
     }
@@ -124,6 +148,7 @@ impl Canvas {
     pub fn clear(&mut self, color: [u8; 4]) {
         self.pixmap
             .fill(Color::from_rgba8(color[0], color[1], color[2], color[3]));
+        self.opaque = color[3] == 255;
         self.dirty = true;
     }
 
@@ -315,32 +340,78 @@ impl Canvas {
         } else {
             family
         };
-        let (width, height) = (self.pixmap.width(), self.pixmap.height());
-
-        let svg = format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\">\
-             <text x=\"{x}\" y=\"{y}\" font-family=\"{family}\" font-size=\"{size}\" \
-             font-weight=\"{weight}\" text-anchor=\"{anchor}\" fill=\"#{red:02x}{green:02x}{blue:02x}\" \
-             fill-opacity=\"{opacity:.3}\">{content}</text></svg>",
-            x = x,
-            y = y,
-            family = escape_xml(family),
-            size = size,
-            weight = if bold { "bold" } else { "normal" },
-            red = color[0],
-            green = color[1],
-            blue = color[2],
-            opacity = f32::from(alpha) / 255.0,
-            content = escape_xml(text),
-        );
-
-        let options = usvg::Options {
-            fontdb: self.fonts.clone(),
-            ..usvg::Options::default()
+        let key = GlyphKey {
+            text: text.to_string(),
+            size_bits: size.to_bits(),
+            family: family.to_string(),
+            anchor: anchor.to_string(),
+            bold,
+            color_rgba: [color[0], color[1], color[2], 255],
         };
-        let tree = usvg::Tree::from_str(&svg, &options)
-            .map_err(|e| format!("failed to lay out text: {e}"))?;
-        resvg::render(&tree, self.transform, &mut self.pixmap.as_mut());
+
+        if !self.glyphs.contains_key(&key) {
+            if self.glyphs.len() > 2048 {
+                self.glyphs.clear();
+            }
+            let (width, height) = (self.pixmap.width(), self.pixmap.height());
+            let svg = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\">\
+                 <text x=\"0\" y=\"0\" font-family=\"{family}\" font-size=\"{size}\" \
+                 font-weight=\"{weight}\" text-anchor=\"{anchor}\" fill=\"#{red:02x}{green:02x}{blue:02x}\">\
+                 {content}</text></svg>",
+                family = escape_xml(family),
+                size = size,
+                weight = if bold { "bold" } else { "normal" },
+                red = color[0],
+                green = color[1],
+                blue = color[2],
+                content = escape_xml(text),
+            );
+
+            let options = usvg::Options {
+                fontdb: self.fonts.clone(),
+                ..usvg::Options::default()
+            };
+            let tree = usvg::Tree::from_str(&svg, &options)
+                .map_err(|e| format!("failed to lay out text: {e}"))?;
+            let Some(node) = tree.root().children().first() else {
+                return Ok(());
+            };
+            let Some(bbox) = node.abs_layer_bounding_box() else {
+                return Ok(());
+            };
+            let glyph_width = bbox.width().ceil().max(1.0) as u32;
+            let glyph_height = bbox.height().ceil().max(1.0) as u32;
+            let Some(mut pixmap) = Pixmap::new(glyph_width, glyph_height) else {
+                return Err("invalid text size".to_string());
+            };
+            resvg::render_node(node, Transform::identity(), &mut pixmap.as_mut());
+
+            self.glyphs.insert(
+                key.clone(),
+                Glyph {
+                    pixmap,
+                    offset_x: bbox.x(),
+                    offset_y: bbox.y(),
+                },
+            );
+        }
+
+        let Some(glyph) = self.glyphs.get(&key) else {
+            return Ok(());
+        };
+        let paint = PixmapPaint {
+            opacity: f32::from(alpha) / 255.0,
+            ..PixmapPaint::default()
+        };
+        self.pixmap.draw_pixmap(
+            (x + glyph.offset_x).round() as i32,
+            (y + glyph.offset_y).round() as i32,
+            glyph.pixmap.as_ref(),
+            &paint,
+            self.transform,
+            None,
+        );
         self.dirty = true;
         Ok(())
     }
@@ -554,6 +625,26 @@ impl Canvas {
     pub fn to_flat(&self, channels: u8, swap_rb: bool, background: [u8; 3]) -> Box<[u8]> {
         let channels = usize::from(channels.clamp(3, 4));
         let data = self.pixmap.data();
+
+        // Opaque surfaces need no alpha compositing (premultiplied == straight for alpha 255).
+        if self.opaque {
+            let mut out = vec![0u8; data.len() / 4 * channels];
+            for (pixel, dst) in data
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(out.chunks_exact_mut(channels))
+            {
+                dst[0] = if swap_rb { pixel[2] } else { pixel[0] };
+                dst[1] = pixel[1];
+                dst[2] = if swap_rb { pixel[0] } else { pixel[2] };
+                if channels == 4 {
+                    dst[3] = 255;
+                }
+            }
+            return out.into_boxed_slice();
+        }
+
         let mut out = Vec::with_capacity(data.len() / 4 * channels);
 
         for pixel in data.as_chunks::<4>().0 {

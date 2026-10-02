@@ -799,7 +799,7 @@ fn instant_transition() -> ipc::Transition {
         transition_type: ipc::TransitionType::None,
         duration: 0.0,
         step: std::num::NonZeroU8::MAX,
-        fps: 1,
+        fps: 144,
         angle: 0.0,
         pos: ipc::Position::new(ipc::Coord::Percent(0.5), ipc::Coord::Percent(0.5)),
         bezier: (0.0, 0.0, 1.0, 1.0),
