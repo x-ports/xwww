@@ -1012,9 +1012,9 @@ fn rand_unit(rng: &mut u64) -> f32 {
     (xorshift(rng) >> 40) as f32 / (1u64 << 24) as f32
 }
 
-/// `pixelate` transition: the new image appears as a grid of flat color blocks in raster order, so
-/// it looks like the picture is being rendered at low resolution; the finishing `simple` pass then
-/// sharpens the remaining difference.
+/// `pixelate` transition: the new image appears as a grid of flat color blocks in raster order,
+/// and then the real pixels are filled block by block, so the picture sharpens progressively
+/// instead of snapping at the end.
 struct Pixelate {
     start: f64,
     duration: f64,
@@ -1022,9 +1022,13 @@ struct Pixelate {
     rows: usize,
     block_size: usize,
     averages: Option<Box<[[u8; 4]]>>,
-    revealed: usize,
+    revealed_blocks: usize,
+    sharpened_blocks: usize,
     step: NonZeroU8,
 }
+
+/// Fraction of the transition used to lay down the flat blocks; the rest sharpens them.
+const PIXELATE_BLOCK_PHASE: f64 = 0.65;
 
 impl Pixelate {
     fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
@@ -1038,7 +1042,8 @@ impl Pixelate {
             rows,
             block_size,
             averages: Option::None,
-            revealed: 0,
+            revealed_blocks: 0,
+            sharpened_blocks: 0,
             step: transition.step,
         }
     }
@@ -1090,7 +1095,18 @@ impl Pixelate {
         let t = (elapsed / self.duration).clamp(0.0, 1.0);
         let channels = pixel_format.channels() as usize;
         let total = self.cols * self.rows;
-        let target = (t * total as f64) as usize;
+
+        // Phase 1: flat color blocks. Phase 2: fill the real pixels block by block.
+        let block_target = if t < PIXELATE_BLOCK_PHASE {
+            ((t / PIXELATE_BLOCK_PHASE) * total as f64) as usize
+        } else {
+            total
+        };
+        let sharpen_target = if t <= PIXELATE_BLOCK_PHASE {
+            0
+        } else {
+            (((t - PIXELATE_BLOCK_PHASE) / (1.0 - PIXELATE_BLOCK_PHASE)) * total as f64) as usize
+        };
 
         for wallpaper in wallpapers.iter() {
             let mut wallpaper = wallpaper.borrow_mut();
@@ -1100,7 +1116,8 @@ impl Pixelate {
             self.averages(img, width, height, channels);
 
             let averages = self.averages.as_ref().expect("just computed");
-            let new_blocks: Vec<usize> = (self.revealed..target).collect();
+            let new_blocks: Vec<usize> = (self.revealed_blocks..block_target).collect();
+            let real_blocks: Vec<usize> = (self.sharpened_blocks..sharpen_target).collect();
             let cols = self.cols;
             let block_size = self.block_size;
             let stride = width * channels;
@@ -1121,9 +1138,23 @@ impl Pixelate {
                         }
                     }
                 }
+                for &block in &real_blocks {
+                    let row = block / cols;
+                    let col = block % cols;
+                    let x0 = col * block_size;
+                    let y0 = row * block_size;
+                    let x1 = (x0 + block_size).min(width);
+                    let y1 = (y0 + block_size).min(height);
+                    for y in y0..y1 {
+                        let off = y * stride + x0 * channels;
+                        let len = (x1 - x0) * channels;
+                        canvas[off..off + len].copy_from_slice(&img[off..off + len]);
+                    }
+                }
             });
         }
-        self.revealed = target;
+        self.revealed_blocks = block_target;
+        self.sharpened_blocks = sharpen_target;
 
         t >= 1.0
     }
@@ -1411,8 +1442,8 @@ impl Parallax {
         wallpapers: &mut [WallpaperCell],
         img: &[u8],
     ) -> bool {
-        let p = self.seq.now();
         self.seq.advance_to(elapsed(self.start));
+        let p = self.seq.now().min(1.0);
         let dir = self.dir;
         let old = &mut self.old;
         let channels = pixel_format.channels() as usize;
@@ -1609,7 +1640,10 @@ impl Shatter {
     ) -> bool {
         let elapsed = elapsed(self.start);
         let t = (elapsed / self.duration).clamp(0.0, 1.0);
-        let target = (t * self.order.len() as f64) as usize;
+        // Reveal the tiles early enough that their own animation also fits in the duration.
+        let reveal_window = (self.duration - SHATTER_ANIM).max(0.05);
+        let reveal_t = (elapsed / reveal_window).clamp(0.0, 1.0);
+        let target = (reveal_t * self.order.len() as f64) as usize;
 
         let now = now_f64();
         let dt = (now - self.last).clamp(0.0, 0.1);
@@ -1703,7 +1737,10 @@ impl Shatter {
             self.done[tile] = true;
         }
 
-        t >= 1.0
+        // Hold the effect until every tile finished its animation, so the last ones
+        // do not snap when the transition is replaced.
+        let animating = self.anim.iter().any(|a| (0.0..1.0).contains(a));
+        t >= 1.0 && !animating
     }
 }
 
