@@ -720,7 +720,8 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     let start = std::time::Instant::now();
 
     /* Entry transition: only the first frame uses it, and the loop waits for it to finish so
-       the following instant frames do not cut it off. */
+       the following instant frames do not cut it off. The extra margin covers the time the
+       daemon spends receiving and starting the animation. */
     let entry_transition = make_transition(&run.transition_args());
     let entry_wait = if matches!(
         entry_transition.transition_type,
@@ -728,7 +729,7 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     ) {
         Duration::ZERO
     } else {
-        Duration::from_secs_f64(f64::from(run.transition_duration).max(0.0))
+        Duration::from_secs_f64(f64::from(run.transition_duration).max(0.0) + 0.25)
     };
 
     eprintln!(

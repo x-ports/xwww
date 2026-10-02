@@ -1038,7 +1038,7 @@ pub struct SceneRun {
     /// While the crossfade runs, the previous frame is blended over the new one so palette
     /// switches transition smoothly instead of snapping. It looks best when the frame rate
     /// provides several frames during the crossfade.
-    #[arg(long, env = "XWWW_PALETTE_FADE", default_value = "600")]
+    #[arg(long, env = "XWWW_PALETTE_FADE", default_value = "800")]
     pub palette_fade: u64,
 
     /// Palette source: `xwww[:<path>]`, `equisdots[:<slug>]`, `file:<path>` or `command:<cmd>`.
