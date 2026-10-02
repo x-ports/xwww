@@ -76,7 +76,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-
 
       - name: Build release binaries
-        run: cargo build --release --locked --features video-static
+        run: cargo build --release --locked --features video-static,scene
 
       - name: Generate man pages
         run: ./doc/gen.sh
