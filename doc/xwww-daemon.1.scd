@@ -1,62 +1,68 @@
 xwww-daemon(1)
 
 # NAME
-xwww-daemon
+xwww-daemon - The xwww Wayland wallpaper daemon
 
 # SYNOPSIS
-xwww-daemon [OPTIONS]
+*xwww-daemon* [OPTIONS]
 
 # OPTIONS
 
-*-f*,*--format* <argb|abgr|rgb|bgr>
+*-f*, *--format* <argb|abgr|rgb|bgr>
 	Force the daemon to use a specific wl_shm format.
 
-	By default, xwww-daemon will use argb, because it is most widely
-	supported. Generally speaking, formats with 3 channels will use 3/4 the
-	memory of formats with 4 channels. Also, bgr formats are more efficient
-	than rgb formats because we do not need to do an extra swap of the bytes
-	when decoding the image (though the difference is unnoticiable).
+	By default, *xwww-daemon* will use _argb_, because it is the most widely
+	supported format. Generally speaking, formats with 3 channels use 3/4 of
+	the memory of formats with 4 channels. Also, _bgr_ formats are more
+	efficient than _rgb_ formats because no extra byte swap is required when
+	decoding the image (though the difference is unnoticeable).
 
-*-l*,*--layer* <background|bottom>
-	Which layer to display the background in. Defaults to *background*.
+*-l*, *--layer* <background|bottom>
+	Which layer to display the wallpaper in. Defaults to _background_.
 
-	We do not accept layers *top* and *overlay* because those would make your
-	desktoop unusable by simply putting an image on top of everything else. If
-	there is ever a use case for these, we can reconsider it.
+	The layers _top_ and _overlay_ are not accepted, because those would put
+	an image on top of everything else and make the desktop unusable.
 
-*-n*,*--namespace* <namespace>
-	Which wayland namespace to append to *xwww-daemon*.
+*-n*, *--namespace* <namespace>
+	Which Wayland namespace to append to *xwww-daemon*.
 
-	The result namespace will the *xwww-daemon<specified namespace>*. This also
-	affects the name of the *xwww-daemon* socket we will use to communicate
-	with the *client*. Specifically, our socket name is
-	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.socket_.
+	The resulting namespace will be *xwww-daemon<specified namespace>*. This
+	also affects the name of the *xwww-daemon* socket used to communicate with
+	the client. Specifically, the socket name is
+	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.sock_.
 
-	Some compositors can have several different wallpapers per output. This
-	allows you to differentiate between them. Most users will probably not have
-	to set anything in this option.
+	Namespaces let several independent wallpapers run on the same Wayland
+	display (for example one per workspace). Most users will not need to set
+	this option.
 
 *--no-cache*
-	Don't search the cache for the last wallpaper for each output.
-	Useful if you always want to select which image 'xwww' loads manually using
-	'xwww img'
+	Do not load the cached wallpaper for each output.
 
-*-q*,*--quiet*
-	Makes the daemon only log errors.
+	Useful if you always want to select which image *xwww* displays manually
+	with *xwww img*.
+
+*-q*, *--quiet*
+	Only log errors.
 
 *-h*, *--help*
-	Print help (see a summary with '-h')
+	Print help (see a summary with '-h').
 
 *-V*, *--version*
-	Print version
+	Print version.
 
 # DESCRIPTION
 
-The *xwww-daemon* will run continuously, waiting for commands in
-_${XDG_RUNTIME_DIR}/xwww-${WAYLAND_DISPLAY}.socket_ (or
-_/tmp/xwww/xwww-${WAYLAND_DISPLAY}.socket_, if $XDG_RUNTIME_DIR is not set). The
-daemon will take care of both creating and deleting that file when it is
-initialized or killed.
+The *xwww-daemon* runs continuously, drawing wallpapers on the
+*wlr-layer-shell* protocol and waiting for commands on a UNIX socket. The
+socket is created at
+_${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}-xwww-daemon[.<namespace>].sock_, or at
+_/run/user/<uid>/${WAYLAND_DISPLAY}-xwww-daemon[.<namespace>].sock_ when
+$XDG_RUNTIME_DIR is not set. The daemon creates and deletes that file when it
+is initialized or killed.
+
+When an output is created or reconfigured and caching is enabled, the daemon
+restores the last wallpaper displayed on it by reading the cache maintained by
+the client.
 
 # SEE ALSO
-*xwww*(1)
+*xwww*(1) *xwww-img*(1) *xwww-query*(1)

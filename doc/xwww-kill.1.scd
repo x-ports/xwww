@@ -4,39 +4,38 @@ xwww-kill(1)
 xwww-kill
 
 # SYNOPSIS
-*xwww kill*
+*xwww kill* [OPTIONS]
 
 # OPTIONS
 
-*-a*,*--all*
-	Send this command to all active *xwww-daemon* namespaces.
+*-a*, *--all*
+	Kill all active *xwww-daemon* namespaces.
 
-*-n*,*--namespace* <namespace>
-	Which wayland namespace to send this command to.
+*-n*, *--namespace* <namespace>
+	Which Wayland namespace to send this command to.
 
 	You can specify this option multiple times to send commands to multiple
-	namespaces at once: *xwww kill -n <namespace1> -n <namespace 2>*.
+	namespaces at once: *xwww kill -n <namespace1> -n <namespace2>*.
 
-	This affects the name of the *xwww-daemon* socket we will use to
-	communicate with. Specifically, our socket name is
-	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.socket_.
+	This affects the name of the *xwww-daemon* socket used to communicate
+	with. Specifically, the socket name is
+	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.sock_.
 
-	Some compositors can have several different wallpapers per output. This
-	allows you to differentiate between them. Most users will probably not have
-	to set anything in this option.
+	Namespaces let several independent wallpapers run on the same Wayland
+	display. Most users will not need to set this option.
 
 *-h*, *--help*
-	Print help (see a summary with '-h')
+	Print help (see a summary with '-h').
 
 # DESCRIPTION
 
-Kills the daemon. This is the recommended way of doing it, since we wait to make
-sure the socket file was deleted, thus confirming the daemon exited.
+Kills the daemon. This is the recommended way of doing it, because the client
+waits until the socket file has been deleted, which confirms that the daemon
+exited.
 
-Note that sending SIGTERM to the daemon would work correctly, but sending
-SIGKILL would make daemon leave behind the socket file. This is not a big
-problem; it would only cause a warning to be printed next time the daemon is
-initialized.
+Sending SIGTERM would also work correctly, but SIGKILL leaves the socket file
+behind. That is not a big problem; it only causes a warning the next time the
+daemon is initialized.
 
 # SEE ALSO
-*xwww-daemon*(1)
+*xwww*(1) *xwww-daemon*(1)
