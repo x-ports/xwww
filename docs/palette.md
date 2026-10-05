@@ -1,8 +1,33 @@
+<a id="top" name="top"></a>
+
 # Palette
 
-`xwww palette` extracts the dominant colors of an image — or of the wallpaper the daemon is
-currently displaying — which is useful for generating color schemes that match your wallpaper
-(e.g. for theming your shell, terminal or bars).
+`xwww palette` extracts the dominant colors of an image, or of the wallpaper
+the daemon is currently displaying. This is useful for generating color schemes
+that match the wallpaper, for example to theme a shell, terminal or status bar.
+The same palette sources can be consumed by `xwww img --map-palette` and by
+JavaScript scenes.
+
+<div align="center">
+  <a href="README.md">Documentation index</a> &middot;
+  <a href="../README.md">Project README</a> &middot;
+  <a href="#usage">Usage</a> &middot;
+  <a href="#options">Options</a> &middot;
+  <a href="#output">Output</a> &middot;
+  <a href="#how-it-works">How it works</a>
+</div>
+
+<details open>
+<summary><strong>On this page</strong></summary>
+
+- [Usage](#usage)
+- [Options](#options)
+- [Output](#output)
+- [How it works](#how-it-works)
+
+</details>
+
+<a id="usage" name="usage"></a>
 
 ## Usage
 
@@ -13,25 +38,32 @@ xwww palette path/to/image.png --count 5
 
 # from the current wallpaper (requires a running daemon)
 xwww palette
-xwww palette -o HDMI-A-1            # restrict to one output
+xwww palette -o HDMI-A-1
 
 # machine-readable output
 xwww palette --json
 ```
 
+<a id="options" name="options"></a>
+
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `<image>` | Image file. If omitted, the current wallpaper is used. |
-| `-c, --count` | Number of colors to output (default `8`). |
-| `-o, --output` | When querying the daemon, which output to use. |
-| `--json` | Emit a JSON array instead of hex lines. |
-| `-n, --namespace` | Daemon namespace (when querying). |
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `<image>` | current wallpaper | Image file to analyze. If omitted, the daemon is queried for the wallpaper on the selected output. |
+| `-c, --count` | `8` | Number of colors to output. |
+| `--json` | off | Emit a JSON array instead of plain hex lines. |
+| `-o, --output` | first output | When querying the daemon, which output to use. |
+| `-n, --namespace` | `""` | Daemon namespace (when querying). |
+
+If the current wallpaper on the selected output is a solid color rather than an
+image, the command fails with a message containing the color.
+
+<a id="output" name="output"></a>
 
 ## Output
 
-Plain mode prints one hex color per line, most frequent first:
+Plain mode prints one uppercase hex color per line, most frequent first:
 
 ```
 #2E3440
@@ -39,11 +71,29 @@ Plain mode prints one hex color per line, most frequent first:
 #BF616A
 ```
 
-JSON mode prints an array of objects with `hex`, `r`, `g`, `b` fields.
+JSON mode prints an array of objects with `hex`, `r`, `g` and `b` fields:
+
+```json
+[
+    {
+        "hex": "#2E3440",
+        "r": 46,
+        "g": 52,
+        "b": 64
+    }
+]
+```
+
+<a id="how-it-works" name="how-it-works"></a>
 
 ## How it works
 
-The image is downsampled to at most `128x128`, pixels are bucketed into a small histogram (4 bits
-per channel), and the top buckets are averaged to produce smooth representative colors. Raster
-formats are decoded with the `image` crate; SVG files are rendered with `resvg`. The
-implementation lives in `client/src/palette.rs`.
+The image is downsampled to at most `128x128`, pixels are bucketed into a
+coarse histogram (4 bits per channel), and the most frequent buckets are
+averaged to produce smooth representative colors, ordered from most to least
+frequent. Raster formats are decoded with the `image` crate; SVG files are
+rendered with `resvg`. The implementation lives in `client/src/palette.rs`.
+
+<div align="center">
+  <a href="#top">Back to top</a>
+</div>

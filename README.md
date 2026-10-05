@@ -1,233 +1,559 @@
+<a id="top" name="top"></a>
+
 # xwww
-### Efficient animated wallpaper daemon for Wayland, controlled at runtime
 
-> Forked from [awww](https://codeberg.org/LGFae/awww) ("An Answer to your
-> Wayland Wallpaper Woes"), which is itself a fork of `swww`. Licensed GPL-3.0.
+**An efficient animated wallpaper daemon for Wayland, controlled at runtime.**
 
-![animated gif demonstration](../demos/assets/demo.gif)
+`xwww` draws wallpapers on the `wlr-layer-shell` protocol and can be reconfigured
+while it runs: images, animated GIF/WebP/APNG files, videos, solid colors,
+transitions, palettes and JavaScript scenes. It is a fork of
+[`awww`](https://codeberg.org/LGFae/awww) ("An Answer to your Wayland Wallpaper
+Woes"), which is itself a fork of
+[`swww`](https://github.com/LGFae/swww). Licensed GPL-3.0.
 
-![image transition demonstration](../demos/assets/grow.gif)
+<div align="center">
+  <a href="#overview">Overview</a> &middot;
+  <a href="#features">Features</a> &middot;
+  <a href="#requirements">Requirements</a> &middot;
+  <a href="#installation">Installation</a> &middot;
+  <a href="#quick-start">Quick start</a> &middot;
+  <a href="#usage">Usage</a> &middot;
+  <a href="#configuration">Configuration</a> &middot;
+  <a href="#cache">Cache</a> &middot;
+  <a href="#troubleshooting">Troubleshooting</a> &middot;
+  <a href="#development">Development</a> &middot;
+  <a href="#documentation">Documentation</a> &middot;
+  <a href="#alternatives">Alternatives</a> &middot;
+  <a href="#license">License</a>
+</div>
 
-## Dependencies
+<details open>
+<summary><strong>On this page</strong></summary>
 
- - a compositor that implements the wlr-layer-shell (typically wlroots based compositors)
- - [lz4](https://github.com/lz4/lz4) (for compressing frames when animating)
+- [Overview](#overview)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [From source](#from-source)
+  - [Man pages](#man-pages)
+  - [Nix](#nix)
+  - [Prebuilt release archives](#prebuilt-release-archives)
+  - [systemd user service](#systemd-user-service)
+- [Quick start](#quick-start)
+- [Usage](#usage)
+  - [Images and colors](#images-and-colors)
+  - [Outputs and namespaces](#outputs-and-namespaces)
+  - [Transitions](#transitions)
+  - [Image effects](#image-effects)
+  - [JavaScript scenes](#javascript-scenes)
+  - [Palette](#palette)
+  - [Slideshow and random](#slideshow-and-random)
+  - [Screenshot](#screenshot)
+  - [Video wallpapers](#video-wallpapers)
+  - [Daemon control](#daemon-control)
+- [Configuration](#configuration)
+- [Cache](#cache)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Documentation](#documentation)
+- [Alternatives](#alternatives)
+- [Acknowledgments](#acknowledgments)
+- [License](#license)
 
-**Note that this means `xwww` will not run on Gnome, because it does not implement the `wlr-layer-shell` protocol**.
+</details>
 
-## Build
+<a id="overview" name="overview"></a>
 
-### Dependencies:
+## Overview
 
- - wayland-client and wayland-protocol `.xml` files installed in your system (`pkg-config` must be able to find it)
- - Up to date stable rustc compiler and cargo (specifically, MSRV is 1.87.0)
+`xwww` is split into two programs:
 
-To build, clone this repository and run:
-```
-cargo build --release
-```
-Then, put **both binaries** `target/release/xwww` and
-`target/release/xwww-daemon` in your  path. Optionally, autocompletion scripts
-for bash, zsh, fish and elvish are offered in the `completions` directory.
+- `xwww-daemon` connects to the Wayland compositor, creates one layer surface
+  per output, and owns the visible pixels.
+- `xwww` is the control client. It decodes and prepares the wallpaper, then sends
+  the pixels and an optional transition to the daemon over a UNIX socket.
 
-#### Man pages:
+The daemon never restarts to change a wallpaper, which makes `xwww` a good
+building block for shell scripts and desktop integrations. Scheduling logic
+(time-of-day wallpapers, per-workspace images, and so on) is expected to live in
+scripts that call `xwww`, not inside the daemon.
 
-In order to generate the man pages, **you must have `scdoc` installed**. Run
+Because `xwww` relies on `wlr-layer-shell`, it works on compositors that
+implement that protocol (Hyprland, Sway, niri, River, Wayfire, ...) and does
+**not** work on GNOME, which does not implement it.
 
-```
-./doc/gen.sh
-```
-
-The man pages will be in `doc/generated`. To install them, you must move them to
-to the appropriate location in your system. You should be able to figure out
-where that is by running `manpath`.
-
-### Nix
-
-NixOS users can directly use this repository to get the latest xwww for their system.
-
-Add in your `flake.nix`:
-
-```nix
-  inputs.xwww.url = "git+https://codeberg.org/<your-org-or-user>/xwww";
-```
-
-Pass inputs to your modules using `specialArgs` and
-Then in `configuration.nix`:
-
-```nix
-  environment.systemPackages = [
-    inputs.xwww.packages.${pkgs.stdenv.hostPlatform.system}.xwww
-  ];
-```
+<a id="features" name="features"></a>
 
 ## Features
 
- - Display animated gifs on your desktop
- - Display any image in the formats:
-   * avif
-   (note: must have `dav1d` dependency and compile with `--features=avif` flag)
-   * jpeg
-   * jpegxl (only static jxls are supported)
-   * png
-   * gif
-   * pnm
-   * tga
-   * tiff
-   * webp
-   * bmp
-   * farbfeld
-   * svg (only static svgs are supported)
- - Clear the screen with an arbitrary rrggbb color
- - Smooth transition effect when you switch images
- - Do all of that without having to shutdown and reinitialize the daemon
+- Displays static images in the following formats:
+  `avif` (optional feature), `bmp`, `dds`, `exr`, `farbfeld`, `gif`, `hdr`,
+  `ico`, `jpeg`, `jpeg-xl` (optional feature), `png`, `pnm`, `qoi`, `svg`, `tga`,
+  `tiff` and `webp`.
+- Displays animated `gif`, `webp` and `apng` wallpapers.
+- Displays videos as wallpapers (optional feature, on by default).
+- Fills outputs with an arbitrary `rrggbb` color.
+- Applies client-side effects before sending: Gaussian `--blur`, `--dim` and
+  palette recoloring with `--map-palette`.
+- Uses 30 transition effects, including wipes, circles, glitch, decrypt,
+  pixelate, ripple, blinds, spiral, static, parallax, melt and shatter.
+- Extracts a dominant-color palette from an image or from the current wallpaper
+  with `xwww palette`.
+- Cycles wallpapers with `xwww slideshow`, or picks one with `xwww random`.
+- Captures the current wallpaper to a PNG with `xwww screenshot`.
+- Renders procedural, palette-aware JavaScript wallpapers with `xwww scene`
+  (optional feature).
+- Targets individual outputs, all outputs, or independent daemon namespaces.
+- Works from scripts: `xwww img -` reads an image from standard input.
 
-## Why
+<a id="requirements" name="requirements"></a>
 
-There are two main reasons that compelled me to make this: the first is that
-[`oguri`](https://github.com/vilhalmer/oguri) is unmaintained and archived,
-despite there being serious problems with excess of memory use while displaying
-certain gifs (see [this](https://github.com/vilhalmer/oguri/issues/38), for
-example). The best alternative I've found for `oguri` was
-[`mpvpaper`](https://github.com/GhostNaN/mpvpaper), but if felt overkill for my
-purposes.
+## Requirements
 
-Comparing to `oguri`, `xwww` uses less cpu power to animate once it has cached
-all the frames in the animation. It should also be **significantly** more
-memory efficient.
+Runtime:
 
-The second is that, when I first wrote this, I coulnd't find any wallpaper
-daemon for wayland that allowed you to change the wallpaper at runtime. That is, 
-in order to, for example, cycle through the images of a directory, you had to
-kill the daemon and restart it. However, this is no longer true, as there is
-[wpaperd](https://github.com/danyspin97/wpaperd) (and maybe wasn't
-back then either and I just didn't find it).
+- A compositor that implements the `wlr-layer-shell` protocol, typically
+  wlroots-based.
+- [`lz4`](https://github.com/lz4/lz4) for compressing animation frames.
+- A running Wayland session with `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` set.
+
+Build-time (in addition to a Rust toolchain):
+
+- `wayland-client` development files and the
+  `wayland-protocols` XML files, discoverable through `pkg-config`.
+- `liblz4` development files (`pkg-config` must find `liblz4 >= 1.8`).
+- A C toolchain and FFmpeg development headers when the `video` feature is
+  enabled (it is by default). The `video-static` feature builds and links FFmpeg
+  statically instead.
+- `scdoc` to generate the man pages.
+
+The MSRV is Rust **1.89.0** (edition 2024).
+
+<a id="installation" name="installation"></a>
+
+## Installation
+
+<a id="from-source" name="from-source"></a>
+
+### From source
+
+```sh
+git clone https://github.com/x-ports/xwww
+cd xwww
+cargo build --release
+```
+
+The binaries are written to `target/release/xwww` and
+`target/release/xwww-daemon`. Put both on your `PATH`.
+
+Shell completions for bash, zsh, fish and elvish are generated during the build
+into the `completions/` directory.
+
+To build a minimal binary without video or the scene engine:
+
+```sh
+cargo build --release --no-default-features
+```
+
+See [Cargo features](docs/cargo-features.md) for every flag and combination.
+
+<a id="man-pages" name="man-pages"></a>
+
+### Man pages
+
+With `scdoc` installed:
+
+```sh
+./doc/gen.sh
+```
+
+The pages are written to `doc/generated`. Install them where `manpath` says, or
+copy them into `<prefix>/share/man/man1`.
+
+<a id="nix" name="nix"></a>
+
+### Nix
+
+The repository is also a flake. Add it to your `flake.nix`:
+
+```nix
+inputs.xwww.url = "git+https://github.com/x-ports/xwww";
+```
+
+Pass the inputs to your modules with `specialArgs` and install the package:
+
+```nix
+environment.systemPackages = [
+  inputs.xwww.packages.${pkgs.stdenv.hostPlatform.system}.xwww
+];
+```
+
+<a id="prebuilt-release-archives" name="prebuilt-release-archives"></a>
+
+### Prebuilt release archives
+
+Every tagged release publishes tarballs on the
+[GitHub releases page](https://github.com/x-ports/xwww/releases) for
+`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. They are built with
+`--features video-static,scene` and contain both binaries, the shell
+completions, the generated man pages and the systemd unit. Verify the download
+with the `.sha256` file published next to each tarball.
+
+<a id="systemd-user-service" name="systemd-user-service"></a>
+
+### systemd user service
+
+A service unit is available at
+[`contrib/systemd/xwww-daemon.service`](contrib/systemd/xwww-daemon.service).
+It runs the daemon as part of `graphical-session.target` and is the recommended
+way to start it automatically.
+
+<a id="quick-start" name="quick-start"></a>
+
+## Quick start
+
+Start the daemon once:
+
+```sh
+xwww-daemon &
+```
+
+Then set wallpapers from another terminal:
+
+```sh
+# static image
+xwww img ~/Pictures/wallpaper.png
+
+# animated gif with a grow transition
+xwww img ~/Pictures/animation.gif \
+  --transition-type grow --transition-pos 0.5,0.5 --transition-duration 2
+
+# solid color
+xwww img 0x1e1e2eff
+
+# list outputs and the current wallpaper
+xwww query
+
+# stop the daemon
+xwww kill
+```
+
+<a id="usage" name="usage"></a>
 
 ## Usage
 
-Start by initializing the daemon:
+<a id="images-and-colors" name="images-and-colors"></a>
+
+### Images and colors
+
+```sh
+xwww img path/to/image.png
+xwww img - < image.png                # read from standard input
+xwww img 0xff0000ff                   # solid rrggbbaa color
+xwww img image.png --resize fit --filter Lanczos3
+xwww img image.png --resize no --fill-color 101010ff
 ```
-xwww-daemon
+
+`--resize` accepts `crop` (default), `fit`, `stretch` and `no` (center and pad
+with `--fill-color`). When cropping, `--crop-gravity` selects the anchored
+portion (`center`, `top-left`, `top`, `top-right`, `left`, `right`,
+`bottom-left`, `bottom`, `bottom-right`). `--filter` accepts `Nearest`,
+`Bilinear`, `CatmullRom`, `Mitchell` and `Lanczos3`.
+
+<a id="outputs-and-namespaces" name="outputs-and-namespaces"></a>
+
+### Outputs and namespaces
+
+```sh
+xwww img -o HDMI-A-1,DP-2 wallpaper.jpg   # specific outputs
+xwww query                                # valid output names
+xwww query --json                         # machine-readable output
+xwww-daemon --namespace secondary         # start a second, independent daemon
+xwww img -n secondary other.png           # talk to that daemon
+xwww kill --all                           # every namespace
 ```
-Then, in a different terminal, simply pass the image you want to display:
+
+A daemon namespace is appended to the socket name, so several daemons can run
+side by side on the same Wayland display. Most commands accept
+`-n/--namespace` (repeatable) and `-a/--all`; run `xwww <command> --help` for
+the exact option set.
+
+<a id="transitions" name="transitions"></a>
+
+### Transitions
+
+```sh
+xwww img image.png --transition-type center
+xwww img image.png --transition-type wipe --transition-angle 30
+xwww img image.png --transition-type random --transition-duration 2
 ```
-xwww img <path/to/img>
 
-# You can also specify outputs:
-xwww img -o <outputs> <path/to/img>
+The full list, with descriptions and shape parameters, is in
+[Transitions](docs/transitions.md). Common options:
 
-# Control how smoothly the transition will happen, as well as its frame rate.
-# --transition-step: smaller values = smoother. Default is 2 if --transition-type is `simple`, and 90 if it is not.
-# --transition-fps: Default = 30.
-xwww img <path/to/img> --transition-step <1 to 255> --transition-fps <1 to 65535>
+| Option | Meaning |
+|--------|---------|
+| `-t, --transition-type` | Effect name (default `simple`). |
+| `--transition-step` | How far each pixel moves per frame (default `2` for `simple`, `90` otherwise). |
+| `--transition-duration` | Duration in seconds for time-based effects (default `3`). |
+| `--transition-fps` | Frame rate of the transition (default `30`). |
+| `--transition-angle` | Angle for `wipe` and `wave`, in degrees. |
+| `--transition-pos` | Center for circular/radial effects (percent, pixels or a keyword such as `center`). |
+| `--transition-bezier` | Bezier curve for `fade` and circle effects. |
+| `--transition-wave` | Wave size for `wave`. |
+| `--invert-y` | Flips the y coordinate of `--transition-pos`. |
 
-# There are also many different transition effects:
-xwww img <path/to/img> --transition-type center
+<a id="image-effects" name="image-effects"></a>
 
-# Note you may also control the above by setting up the XWWW_TRANSITION_FPS,
-# XWWW_TRANSITION_STEP, and XWWW_TRANSITION environment variables.
+### Image effects
 
-# To see all options, run
-xwww img --help
+```sh
+xwww img image.png --blur 20
+xwww img image.png --dim 0.5
+xwww img image.png --map-palette xwww --map-strength 0.7
 ```
-If you would like to know the valid values for *\<outputs\>*, you can query the
-daemon. This will also tell you what the current image being displayed is, as
-well as the dimensions detected for the outputs. If you need more detailed
-information, I would recommend using
-[`wlr-randr`](https://sr.ht/~emersion/wlr-randr/).
+
+`--map-palette` recolors the image through a gradient built from a palette
+source: `xwww[:<path>]`, `equisdots[:<slug>]`, `file:<path>` or `command:<cmd>`.
+Effects apply to static images only. See
+[Image effects](docs/image-effects.md).
+
+<a id="javascript-scenes" name="javascript-scenes"></a>
+
+### JavaScript scenes
+
+Requires a build with the `scene` feature:
+
+```sh
+xwww scene check ~/scenes/clock.js
+xwww scene render ~/scenes/clock.js -o clock.png --size 2560x1440
+xwww scene run ~/scenes/clock.js --fps 10 --palette xwww
 ```
-xwww query
+
+A scene is a single JavaScript file with optional `setup(ctx)` and
+`render(t, ctx)` functions that draw on a small canvas API and read the active
+color palette. See the [Scene engine](docs/scene.md) guide.
+
+<a id="palette" name="palette"></a>
+
+### Palette
+
+```sh
+xwww palette path/to/image.png --count 5
+xwww palette                 # colors of the current wallpaper
+xwww palette --json
 ```
-Finally, to stop the daemon, kill it:
+
+Prints the dominant colors of an image, useful for theming the rest of the
+desktop around the wallpaper. See [Palette](docs/palette.md).
+
+<a id="slideshow-and-random" name="slideshow-and-random"></a>
+
+### Slideshow and random
+
+```sh
+xwww slideshow ~/Pictures/wallpapers --interval 300 --random
+xwww random ~/Pictures/wallpapers --transition-type glitch
 ```
-xwww kill
+
+`slideshow` cycles through a directory forever; `random` sets one random image
+and exits. See [Slideshow](docs/slideshow.md).
+
+<a id="screenshot" name="screenshot"></a>
+
+### Screenshot
+
+```sh
+xwww screenshot wallpaper.png
+xwww screenshot -o HDMI-A-1 wallpaper.png
 ```
-For a more complete description, run `xwww --help` or `xwww <subcommand>
---help`.
 
-There's also a `systemd` service file in [`contrib/systemd/`].
+Captures the wallpaper currently displayed by the daemon (not the whole
+desktop). See [Screenshot](docs/screenshot.md).
 
-Finally, to get a feel for what you can do with some shell scripting, check out
-the [example_scripts](./example_scripts) folder. It can help you get started.
+<a id="video-wallpapers" name="video-wallpapers"></a>
 
-## Transitions
+### Video wallpapers
 
-#### Example wipe transition:
+```sh
+xwww img wallpaper.mp4
+```
 
-> wipe transition with angle set to 30 deg
+Videos are decoded into frames and streamed to the daemon like an animated GIF.
+Video support is a default feature; see [Video](docs/video.md) for build
+requirements and limitations.
 
-![top transition demonstration](../demos/assets/wipe.gif)
+<a id="daemon-control" name="daemon-control"></a>
 
-The `left`, `right`, `top` and `bottom` transitions all work similarly.
+### Daemon control
 
-#### Example outer transition
+| Command | Effect |
+|---------|--------|
+| `xwww pause` | Freezes animations on the last rendered frame. |
+| `xwww unpause` | Resumes animations. |
+| `xwww toggle` | Flips the paused state. |
+| `xwww restore` | Reloads the cached wallpaper per output. |
+| `xwww clear [color]` | Fills outputs with a color. |
+| `xwww clear-cache` | Deletes the whole cache directory. |
+| `xwww kill` | Stops the daemon and removes its socket. |
 
-![outer transition demonstration](../demos/assets/outer.gif)
+<a id="configuration" name="configuration"></a>
 
-The `center` transition is the opposite: it starts from the center and goes
-towards the edges.
+## Configuration
 
-There is also `simple`, which simply fades into the new image, `any`, which
-starts at a random point with either `center` of `outer` transitions, and `random`,
-which selects a transition effect at random.
+`xwww` has no configuration file; behavior is controlled through command-line
+flags and environment variables. The flags listed below also accept an
+environment variable as a fallback:
+
+| Variable | Equivalent flag |
+|----------|-----------------|
+| `XWWW_TRANSITION` | `--transition-type` |
+| `XWWW_TRANSITION_STEP` | `--transition-step` |
+| `XWWW_TRANSITION_DURATION` | `--transition-duration` |
+| `XWWW_TRANSITION_FPS` | `--transition-fps` |
+| `XWWW_TRANSITION_ANGLE` | `--transition-angle` |
+| `XWWW_TRANSITION_POS` | `--transition-pos` |
+| `XWWW_TRANSITION_BEZIER` | `--transition-bezier` |
+| `XWWW_TRANSITION_WAVE` | `--transition-wave` |
+| `INVERT_Y` | `--invert-y` |
+| `XWWW_PALETTE_FADE` | `xwww scene run --palette-fade` |
+
+The daemon also accepts `-f/--format`, `-l/--layer`, `-n/--namespace`,
+`--no-cache` and `-q/--quiet`; run `xwww-daemon --help` for details.
+
+<a id="cache" name="cache"></a>
+
+## Cache
+
+The client remembers the last wallpaper sent to each output under
+`$XDG_CACHE_HOME/xwww/<version>` (or `~/.cache/xwww/<version>`), together with
+the resize/filter settings used, and preprocessed animation frames. When an
+output is (re)connected, the daemon reloads that cached wallpaper
+automatically; `xwww restore` does it on demand. Old versions are cleaned up
+when the cache is updated.
+
+Pass `--no-cache` to `xwww img` to skip updating the cache, or to
+`xwww-daemon` to disable cache loading on startup. Run `xwww clear-cache` to
+delete everything.
+
+<a id="troubleshooting" name="troubleshooting"></a>
 
 ## Troubleshooting
 
-### High cpu usage during caching of a gif's frames
+**The daemon starts but the client cannot connect.**
+Check that `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` are set in the environment
+that runs both programs, and that the compositor implements `wlr-layer-shell`.
+The socket lives at
+`$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY-xwww-daemon[.<namespace>].sock`.
 
-`xwww` will use a non-insignificant amount of cpu power while caching the
-images. This will be specially noticeable if the images need to be resized
-before being displayed. So, if you have a very large gif, I would recommend
-resizing it **before** sending it to `xwww`. That would make the caching phase
-much faster, and thus ultimately reduce power consumption. I can personally
-recommend [`gifsicle`](https://github.com/kohler/gifsicle) for this purpose.
+**"the scene feature is not enabled".**
+`xwww scene` is compiled in only with the `scene` feature:
+`cargo build --release --features scene`. Release archives already include it.
 
-### Wallpaper disappears when reconnecting monitor
+**AVIF or JPEG XL images fail to load.**
+Those decoders are opt-in. Rebuild with `--features avif` or `--features jxl`
+(`--features all-formats` enables every optional format). AVIF also needs
+`dav1d` installed.
 
-`xwww` used to cache its images so that it could reload the current the last
-displayed image automatically. This lead to many problems and also proved to be
-very annoying to keep working with when we updated to
-[`sctk 0.17`](https://github.com/Smithay/client-toolkit). So I decided to nuke
-it.
+**High CPU usage while caching an animated wallpaper.**
+Caching resizes every frame, which is expensive on very large animations.
+Resize the source first (for example with
+[`gifsicle`](https://github.com/kohler/gifsicle)) and the daemon will cache and
+play it much more cheaply.
 
-If you want a wallpaper to be set automatically when you reconnect to a monitor,
-you should use a combination of scripts and a program that lets you run commands
-when a new output is connected, like [`kanshi`](https://sr.ht/~emersion/kanshi/).
+**The wallpaper is blank on one output after a change.**
+Run `xwww query` to confirm the daemon sees the output, then `xwww restore` to
+reload the cached image for it.
 
-## About new features
+**Wayland protocol error mentioning `wl_output` version 4.**
+The compositor must expose version 4 or newer of `wl_output`.
 
-Broadly speaking, **NEW FEATURES WILL NOT BE ADDED, UNLESS THEY ARE EGREGIOUSLY
-SIMPLE**. I made `xwww` with the specific usecase of making shell scripts in
-mind. So, for example, stuff like timed wallpapers, or a setup that loads a
-different image at different times of the day, and so on, should all be done by
-combining `xwww` with other programs (see the [example_scripts](./example_scripts) for some
-examples).
+**Transitions look abrupt on high refresh rate monitors.**
+`--transition-fps` defaults to `30`; raise it to match the monitor. Frame rate
+does not affect `--transition-step`, which controls how far each pixel moves per
+frame.
 
-If you really want some new feature within `xwww` itself, I would recommend
-forking the repository.
+<a id="development" name="development"></a>
+
+## Development
+
+```sh
+cargo fmt --all
+cargo clippy --workspace --locked --tests
+cargo test --workspace
+```
+
+The integration tests in `tests/integration.rs` drive a live daemon and are
+ignored by default. Run them inside a Wayland session with:
+
+```sh
+cargo test --workspace -- --include-ignored
+```
+
+Documentation and man pages are spell-checked with
+[`codespell`](https://github.com/codespell-project/codespell) and
+[`typos`](https://github.com/crate-ci/typos); see `tests/spell_check.rs`.
+`./doc/gen.sh` regenerates the man pages and requires `scdoc`.
+
+<a id="documentation" name="documentation"></a>
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md):
+
+| Document | Contents |
+|----------|----------|
+| [Architecture](docs/architecture.md) | Crate layout and how the client and daemon interact. |
+| [Commands](docs/commands.md) | Reference for every `xwww` subcommand. |
+| [Transitions](docs/transitions.md) | All transition effects. |
+| [Image effects](docs/image-effects.md) | `--blur`, `--dim` and `--map-palette`. |
+| [Palette](docs/palette.md) | Dominant-color extraction. |
+| [Scene engine](docs/scene.md) | JavaScript scenes, palettes and the canvas API. |
+| [Slideshow](docs/slideshow.md) | Cycling wallpapers on a timer. |
+| [Screenshot](docs/screenshot.md) | Capturing the current wallpaper. |
+| [Video](docs/video.md) | Video wallpapers. |
+| [IPC protocol](docs/ipc-protocol.md) | Socket and shared-memory message format. |
+| [Cargo features](docs/cargo-features.md) | Build-time feature flags. |
+| [Future ideas](docs/future-ideas.md) | Planned and proposed work. |
+
+<a id="alternatives" name="alternatives"></a>
 
 ## Alternatives
 
-`xwww` isn't really the simplest, mostest minimalest software you could find
-for managing wallpapers. If you are looking for something simpler, have a look
-at the [awesome-wayland repository list of wallpaper programs
-](https://github.com/natpen/awesome-wayland#wallpaper). I can personally
-recommend:
+`xwww` is not the smallest wallpaper program around. If you want something
+simpler, see the
+[awesome-wayland list of wallpaper programs](https://github.com/natpen/awesome-wayland#wallpaper).
+In particular:
 
- - [`wbg`](https://codeberg.org/dnkl/wbg) - probably the simplest of them all.
- Strongly recommend if you just care about setting a single png as your
- permanent wallpaper on something like a laptop.
- - [`swaybg`](https://github.com/swaywm/swaybg) - made by the wlroots gods
- themselves.
- - [`mpvpaper`](https://github.com/GhostNaN/mpvpaper) - if you want to display
- videos as your wallpapers. This is also what I used for gifs before making
- `xwww`.
- - [`kitty`](https://sw.kovidgoyal.net/kitty/) - you can use the kitty terminal emulator with its [panel](https://sw.kovidgoyal.net/kitty/kittens/panel/) kitten to have the output of an arbitrary TUI program such as htop or btop or similar as your desktop wallpaper.
+- [`wbg`](https://codeberg.org/dnkl/wbg) - probably the simplest of them all;
+  a good fit for a single static image.
+- [`swaybg`](https://github.com/swaywm/swaybg) - made by the wlroots
+  developers.
+- [`mpvpaper`](https://github.com/GhostNaN/mpvpaper) - if you want videos as
+  wallpapers.
+- [`swww`](https://github.com/LGFae/swww) and
+  [`awww`](https://codeberg.org/LGFae/awww) - the upstream projects this fork
+  is based on.
+- [`kitty`](https://sw.kovidgoyal.net/kitty/) - use its
+  [panel](https://sw.kovidgoyal.net/kitty/kittens/panel/) kitten to show an
+  arbitrary TUI program as the wallpaper.
+
+<a id="acknowledgments" name="acknowledgments"></a>
 
 ## Acknowledgments
 
-A huge thanks to everyone involved in the [smithay](https://github.com/Smithay)
-project. Making this program would not have been possible without it. In fact,
-the first versions of xwww were quite literally copy pasted from the
-[layer shell example in the client-toolkit
-](https://github.com/Smithay/client-toolkit/blob/master/examples/layer_shell.rs).
+Thanks to everyone involved in the [Smithay](https://github.com/Smithay)
+project. The first versions of this program were adapted from the
+[layer shell example in the client-toolkit](https://github.com/Smithay/client-toolkit/blob/master/examples/layer_shell.rs).
+Thanks as well to the `swww` and `awww` authors and contributors, whose work
+this fork builds on.
+
+<a id="license" name="license"></a>
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).
+
+<div align="center">
+  <a href="#top">Back to top</a>
+</div>

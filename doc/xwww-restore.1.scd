@@ -4,46 +4,46 @@ xwww-restore(1)
 xwww-restore
 
 # SYNOPSIS
-*xwww restore*
+*xwww restore* [OPTIONS]
 
 # OPTIONS
 
-*-a*,*--all*
-	Send this command to all active *xwww-daemon* namespaces.
+*-a*, *--all*
+	Restore all active *xwww-daemon* namespaces.
 
-*-n*,*--namespace* <namespace>
-	Which wayland namespace to send this command to.
+*-n*, *--namespace* <namespace>
+	Which Wayland namespace to send this command to.
 
 	You can specify this option multiple times to send commands to multiple
-	namespaces at once: *xwww restore -n <namespace1> -n <namespace 2>*.
+	namespaces at once: *xwww restore -n <namespace1> -n <namespace2>*.
 
-	This affects the name of the *xwww-daemon* socket we will use to
-	communicate with. Specifically, our socket name is
-	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.socket_.
+	This affects the name of the *xwww-daemon* socket used to communicate
+	with. Specifically, the socket name is
+	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.sock_.
 
-	Some compositors can have several different wallpapers per output. This
-	allows you to differentiate between them. Most users will probably not have
-	to set anything in this option.
-
+	Namespaces let several independent wallpapers run on the same Wayland
+	display. Most users will not need to set this option.
 
 *-o*, *--outputs*
 	Comma separated list of outputs to restore. Use *xwww query* to know which
-	outputs are currently being used.
+	outputs are currently available.
 
-	If it isn't set, all outputs will be restored.
+	If it is not set, all outputs are restored.
 
 *-h*, *--help*
-	Print help (see a summary with '-h')
+	Print help (see a summary with '-h').
 
 # DESCRIPTION
 
-Restores the last displayed image on the specified outputs.
+Restores, from the cache, the last wallpaper each selected output displayed.
+The daemon already does this automatically when an output is (re)connected, so
+this command is mainly useful to force a reload or to split initialization into
+separate steps in scripts.
 
-This can be used to split initialization (with *xwww init --no-daemon*) and
-cache loading into different steps, in order to avoid race condition traps.
-
-You can also use this command to restore the last displayed image when
-reconnecting a monitor.
+The cache is written by *xwww img* under _$XDG_CACHE_HOME/xwww/<version>_ or
+_$HOME/.cache/xwww/<version>_. Wallpapers set with *xwww clear* are not cached;
+use *xwww img 0xrrggbbaa* if you want a solid color to be restored on
+reconnect.
 
 # SEE ALSO
-*xwww-clear-cache*(1)
+*xwww*(1) *xwww-clear-cache*(1) *xwww-img*(1)

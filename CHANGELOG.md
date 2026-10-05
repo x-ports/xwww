@@ -1,9 +1,28 @@
+<a id="top" name="top"></a>
+
 # Changelog
 
-All notable changes to xwww are documented here.
-Dates use YYYY-MM-DD.
+All notable changes to `xwww` are documented here. Dates use `YYYY-MM-DD`.
+Entries start at version `0.13.0`; earlier releases predate this changelog.
 
-## [2026-10-02] - 0.13.1
+<div align="center">
+  <a href="README.md">Project README</a> &middot;
+  <a href="docs/README.md">Documentation</a> &middot;
+  <a href="#version-0-13-1">0.13.1</a> &middot;
+  <a href="#version-0-13-0">0.13.0</a>
+</div>
+
+<details open>
+<summary><strong>Releases</strong></summary>
+
+- [0.13.1 - 2026-10-02](#version-0-13-1)
+- [0.13.0 - 2026-10-02](#version-0-13-0)
+
+</details>
+
+<a id="version-0-13-1" name="version-0-13-1"></a>
+
+## [0.13.1] - 2026-10-02
 
 ### Fixed
 
@@ -26,7 +45,9 @@ Dates use YYYY-MM-DD.
   frame.
 - Output conversion for fully opaque canvases skips alpha compositing.
 
-## [2026-10-02] - 0.13.0
+<a id="version-0-13-0" name="version-0-13-0"></a>
+
+## [0.13.0] - 2026-10-02
 
 ### Added
 
@@ -63,3 +84,7 @@ Dates use YYYY-MM-DD.
 - `shatter`, `parallax` and `pixelate` finish inside their duration (tile animations, exact final
   frame and progressive sharpening).
 - The daemon compiles with the current `rustix` (the stdio calls are now `unsafe`).
+
+<div align="center">
+  <a href="#top">Back to top</a>
+</div>

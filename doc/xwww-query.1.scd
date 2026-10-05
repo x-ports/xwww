@@ -4,74 +4,74 @@ xwww-query(1)
 xwww-query
 
 # SYNOPSIS
-*xwww query*
+*xwww query* [OPTIONS]
 
 # OPTIONS
 
-*-a*,*--all*
-	Send this command to all active *xwww-daemon* namespaces.
+*-a*, *--all*
+	Query all active *xwww-daemon* namespaces.
 
-*-j*,*--j*
-	Print the information in *json* format.
+*-j*, *--json*
+	Print the information in JSON format.
 
-*-n*,*--namespace* <namespace>
-	Which wayland namespace to send this command to.
+*-n*, *--namespace* <namespace>
+	Which Wayland namespace to query.
 
-	You can specify this option multiple times to send commands to multiple
-	namespaces at once: *xwww query -n <namespace1> -n <namespace 2>*.
+	You can specify this option multiple times to query multiple namespaces at
+	once: *xwww query -n <namespace1> -n <namespace2>*.
 
-	This affects the name of the *xwww-daemon* socket we will use to
-	communicate with. Specifically, our socket name is
-	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.socket_.
+	This affects the name of the *xwww-daemon* socket used to communicate
+	with. Specifically, the socket name is
+	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.sock_.
 
-	Some compositors can have several different wallpapers per output. This
-	allows you to differentiate between them. Most users will probably not have
-	to set anything in this option.
+	Namespaces let several independent wallpapers run on the same Wayland
+	display. Most users will not need to set this option.
 
 *-h*, *--help*
-	Print help (see a summary with '-h')
+	Print help (see a summary with '-h').
 
 # DESCRIPTION
 
-Asks the daemon to print output information (names and dimensions).
+Asks the daemon to print output information (names, dimensions, scale factor
+and the content currently displayed).
 
-You may use this to find out valid values for the <xwww-img --outputs> option. If
-you want more detailed information about your outputs, I would recommend trying
-something like *wlr-randr*.
+You may use this to find out valid values for the *xwww-img --outputs* option.
+If you want more detailed information about your outputs, try *wlr-randr*.
 
 # OUTPUT FORMAT
 
-Currently, *xwww query* prints information in the following format:
+Plain output prints one line per output:
 
 ```
 NAMESPACE: OUTPUT: SIZE, scale: SCALE, currently displaying: IMAGE_OR_COLOR
 ```
 
-where *SIZE* is in the format *WxH* (eg.: *1920x1080*), *SCALE* in "scale:
-NUMBER", and *IMAGE_OR_COLOR* in
-	- "image: IMAGENAME", if it's an image; or
-	- "color: RGB", if it's a color
+where *SIZE* is in the format *WxH* (for example *1920x1080*) and
+*IMAGE_OR_COLOR* is either _image: IMAGENAME_ or _color: RGB_ (uppercase hex).
 
 # JSON FORMAT
 
-The *json* format will print information like so:
+With *--json*, the command prints an object keyed by namespace. Each value is
+an array of outputs:
 
 ```
 {
-"NAMESPACE": [<LIST OF OUTPUTS>]
+    "namespace": [
+        {
+            "name": "OUTPUT",
+            "width": 1920,
+            "height": 1080,
+            "scale": 1,
+            "displaying": {
+                "image": "/path/to/image"
+            }
+        }
+    ]
 }
 ```
 
-Where each output in the list is in format:
+For a solid color, the _displaying_ object contains a _color_ key with a
+`#rrggbb` value instead.
 
-```
-{
-	"name": <NAME>,
-	"width": <WIDTH>,
-	"height": <HEIGHT>,
-	"scale": <SCALE>,
-	"displaying": {
-		"image" OR "color": <PATH/TO/IMAGE> OR <COLOR IN HEXA>
-	},
-}
-```
+# SEE ALSO
+*xwww*(1) *xwww-img*(1)

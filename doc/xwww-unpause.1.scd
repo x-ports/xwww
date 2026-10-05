@@ -1,10 +1,10 @@
-xwww-pause(1)
+xwww-unpause(1)
 
 # NAME
-xwww-pause
+xwww-unpause
 
 # SYNOPSIS
-*xwww pause* [OPTIONS]
+*xwww unpause* [OPTIONS]
 
 # OPTIONS
 
@@ -15,7 +15,7 @@ xwww-pause
 	Which Wayland namespace to send this command to.
 
 	You can specify this option multiple times to send commands to multiple
-	namespaces at once: *xwww pause -n <namespace1> -n <namespace2>*.
+	namespaces at once: *xwww unpause -n <namespace1> -n <namespace2>*.
 
 	This affects the name of the *xwww-daemon* socket used to communicate
 	with. Specifically, the socket name is
@@ -29,11 +29,8 @@ xwww-pause
 
 # DESCRIPTION
 
-Pauses the daemon. An animating wallpaper freezes on its last rendered frame
-until animations are resumed with *xwww unpause* or *xwww toggle*.
-
-This only pauses animation rendering. The daemon keeps responding to *xwww*
-client commands, and static wallpapers are unaffected.
+Resumes animation rendering after *xwww pause* or *xwww toggle*. Static
+wallpapers are unaffected.
 
 # SEE ALSO
-*xwww*(1) *xwww-toggle*(1) *xwww-unpause*(1) *xwww-daemon*(1)
+*xwww*(1) *xwww-pause*(1) *xwww-toggle*(1)

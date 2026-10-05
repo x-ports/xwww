@@ -8,46 +8,45 @@ xwww-clear
 
 # OPTIONS
 
-*-a*,*--all*
+*-a*, *--all*
 	Send this command to all active *xwww-daemon* namespaces.
 
-*-n*,*--namespace* <namespace>
-	Which wayland namespace to send this command to.
+*-n*, *--namespace* <namespace>
+	Which Wayland namespace to send this command to.
 
 	You can specify this option multiple times to send commands to multiple
-	namespaces at once: *xwww clear -n <namespace1> -n <namespace 2>*.
+	namespaces at once: *xwww clear -n <namespace1> -n <namespace2>*.
 
-	This affects the name of the *xwww-daemon* socket we will use to
-	communicate with. Specifically, our socket name is
-	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.socket_.
+	This affects the name of the *xwww-daemon* socket used to communicate
+	with. Specifically, the socket name is
+	_${WAYLAND_DISPLAY}-xwww-daemon.<specified namespace>.sock_.
 
-	Some compositors can have several different wallpapers per output. This
-	allows you to differentiate between them. Most users will probably not have
-	to set anything in this option.
+	Namespaces let several independent wallpapers run on the same Wayland
+	display. Most users will not need to set this option.
 
 *-o*, *--outputs*
-	Comma separated list of outputs to display the image at. Use *xwww query* to
-	know which outputs are currently being used.
+	Comma separated list of outputs to fill. Use *xwww query* to know which
+	outputs are currently available.
 
-	If it isn't set, the image is displayed on all outputs.
+	If it is not set, all outputs are filled.
 
 *-h*, *--help*
-	Print help (see a summary with '-h')
+	Print help (see a summary with '-h').
 
 # COLOR
 
-The color to fill the screen with. It must be given in *RRGGBB*, hex format. Note
-there is no prepended '#'. Defaults to *000000*.
+The color to fill the screen with, in *RRGGBB* or *RRGGBBAA* hex format,
+without a prepended '#'. Defaults to *000000ff* (opaque black).
 
 # DESCRIPTION
 Fills the specified outputs with the given color.
 
-Currently, we *do not* cache this, so if you want a color to be set at
-initialization, you must set it every time:
+This does not update the wallpaper cache, so if you want a color to survive a
+monitor reconnect, set it with *xwww img 0xrrggbbaa* instead:
 
 ```
-xwww-daemon && xwww clear 1a804a
+xwww-daemon && xwww img 0x1a804aff
 ```
 
 # SEE ALSO
-*xwww-query*(1)
+*xwww*(1) *xwww-query*(1)
