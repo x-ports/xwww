@@ -90,10 +90,12 @@ implement that protocol (Hyprland, Sway, niri, River, Wayfire, ...) and does
 
 <div align="center">
   <img src="https://equisdots.github.io/web/previews/clips/gif/tour-v1-part02.gif" alt="xwww wallpaper preview (tour v1, part 02)" width="100%">
+  <p><em>Palette-aware wallpapers. Change the color palette while a dynamic wallpaper is running and it recolors itself to match, without restarting anything.</em></p>
 </div>
 
 <div align="center">
   <img src="https://equisdots.github.io/web/previews/clips/gif/tour-v1-part05.gif" alt="xwww wallpaper preview (tour v1, part 05)" width="100%">
+  <p><em>One channel for every stack. Rust, QML or shell scripts: if your desktop can communicate with xwww, the wallpaper can change.</em></p>
 </div>
 
 <a id="features" name="features"></a>
