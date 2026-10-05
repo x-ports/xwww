@@ -13,6 +13,7 @@ Woes"), which is itself a fork of
 
 <div align="center">
   <a href="#overview">Overview</a> &middot;
+  <a href="#previews">Previews</a> &middot;
   <a href="#features">Features</a> &middot;
   <a href="#requirements">Requirements</a> &middot;
   <a href="#installation">Installation</a> &middot;
@@ -31,6 +32,7 @@ Woes"), which is itself a fork of
 <summary><strong>On this page</strong></summary>
 
 - [Overview](#overview)
+- [Previews](#previews)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -81,6 +83,18 @@ scripts that call `xwww`, not inside the daemon.
 Because `xwww` relies on `wlr-layer-shell`, it works on compositors that
 implement that protocol (Hyprland, Sway, niri, River, Wayfire, ...) and does
 **not** work on GNOME, which does not implement it.
+
+<a id="previews" name="previews"></a>
+
+## Previews
+
+<div align="center">
+  <img src="https://equisdots.github.io/web/previews/clips/gif/tour-v1-part02.gif" alt="xwww wallpaper preview (tour v1, part 02)" width="100%">
+</div>
+
+<div align="center">
+  <img src="https://equisdots.github.io/web/previews/clips/gif/tour-v1-part05.gif" alt="xwww wallpaper preview (tour v1, part 05)" width="100%">
+</div>
 
 <a id="features" name="features"></a>
 
