@@ -27,6 +27,36 @@ enum AnimatorKind {
     Animation(Animation),
 }
 
+fn sanitize_transition(transition: &ipc::Transition) -> ipc::Transition {
+    let mut transition = transition.clone();
+    if transition.fps == 0 {
+        transition.fps = 30;
+    }
+    if !transition.duration.is_finite() || transition.duration < 0.0 {
+        transition.duration = 3.0;
+    }
+    if !transition.angle.is_finite() {
+        transition.angle = 0.0;
+    }
+    if !transition.wave.0.is_finite() || !transition.wave.1.is_finite() {
+        transition.wave = (20.0, 20.0);
+    }
+    if !transition.bezier.0.is_finite()
+        || !transition.bezier.1.is_finite()
+        || !transition.bezier.2.is_finite()
+        || !transition.bezier.3.is_finite()
+    {
+        transition.bezier = (0.54, 0.0, 0.34, 0.99);
+    }
+    let finite = |coord: &ipc::Coord| match coord {
+        ipc::Coord::Pixel(value) | ipc::Coord::Percent(value) => value.is_finite(),
+    };
+    if !finite(&transition.pos.x) || !finite(&transition.pos.y) {
+        transition.pos = ipc::Position::new(ipc::Coord::Percent(0.5), ipc::Coord::Percent(0.5));
+    }
+    transition
+}
+
 impl Animator {
     pub fn new(
         mut wallpapers: SmallVec<[WallpaperCell; 2]>,
@@ -34,6 +64,7 @@ impl Animator {
         img_req: ImgReq,
         animation: Option<ipc::Animation>,
     ) -> Option<Self> {
+        let transition = sanitize_transition(transition);
         let ImgReq { img, path, dim, .. } = img_req;
         if wallpapers.is_empty() {
             return None;
@@ -50,7 +81,7 @@ impl Animator {
             );
             return None;
         }
-        let effect = Some(Box::new(Effect::new(transition, dim)));
+        let effect = Some(Box::new(Effect::new(&transition, dim)));
         Some(Self {
             wallpapers,
             now: crate::clock::get(),
@@ -243,4 +274,31 @@ fn timespec_saturating_sub(a: Timespec, b: Timespec) -> Timespec {
     }
 
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitizes_invalid_transition_values() {
+        let transition = ipc::Transition {
+            transition_type: ipc::TransitionType::Ink,
+            duration: f32::NAN,
+            step: core::num::NonZeroU8::new(90).unwrap(),
+            fps: 0,
+            angle: f64::INFINITY,
+            pos: ipc::Position::new(ipc::Coord::Percent(f32::NAN), ipc::Coord::Percent(0.5)),
+            bezier: (f32::NAN, 0.0, 0.34, 0.99),
+            wave: (f32::INFINITY, 20.0),
+            invert_y: false,
+        };
+        let sanitized = sanitize_transition(&transition);
+        assert_eq!(sanitized.fps, 30);
+        assert_eq!(sanitized.duration, 3.0);
+        assert_eq!(sanitized.angle, 0.0);
+        assert_eq!(sanitized.wave, (20.0, 20.0));
+        assert_eq!(sanitized.bezier, (0.54, 0.0, 0.34, 0.99));
+        assert!(matches!(sanitized.pos.x, ipc::Coord::Percent(value) if value == 0.5));
+    }
 }

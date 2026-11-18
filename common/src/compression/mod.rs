@@ -82,11 +82,11 @@ impl BitPack {
         let len = u32::from_ne_bytes(bytes.get(0..4)?.try_into().unwrap()) as usize;
         let expected_buf_size = u32::from_ne_bytes(bytes.get(4..8)?.try_into().unwrap());
         let compressed_size = i32::from_ne_bytes(bytes.get(8..12)?.try_into().unwrap());
-        let inner = Inner::Mmapped(MmappedBytes::new_with_len(
+        let inner = Inner::Mmapped(MmappedBytes::new_with_len_checked(
             map,
             bytes.get(12..12 + len)?,
             len,
-        ));
+        )?);
         Some((
             Self {
                 inner,

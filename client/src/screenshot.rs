@@ -27,7 +27,7 @@ pub fn run(screenshot: &Screenshot) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let bytes = socket.recv().map_err(|e| e.to_string())?;
-    let Answer::Screenshot(data) = Answer::receive(bytes) else {
+    let Some(Answer::Screenshot(data)) = Answer::receive(bytes) else {
         return Err("Daemon did not return Screenshot, as expected".to_string());
     };
 

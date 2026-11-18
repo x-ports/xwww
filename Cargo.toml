@@ -4,7 +4,7 @@ members = ["client", "daemon", "common", "tests"]
 default-members = ["client", "daemon"]
 
 [workspace.package]
-version = "0.13.1"
+version = "0.13.2"
 authors = ["xscriptor"]
 edition = "2024"
 license-file = "LICENSE"
@@ -21,9 +21,9 @@ style = { level = "deny", priority = -1 }
 complexity = { level = "warn", priority = -1 }
 #pedantic = { level = "warn", priority = -1 }
 
-module-name-repetitions = "allow"
-missing-errors-doc = "allow"
-missing-panics-doc = "allow"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 # Enable some optimizations in debug mode. Otherwise, it is a pain to test it
 [profile.dev]

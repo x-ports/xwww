@@ -67,6 +67,7 @@ impl ImageRequestBuilder {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,
         img: ImgSend,
@@ -226,8 +227,8 @@ impl RequestSend {
 impl RequestRecv {
     #[must_use]
     #[inline]
-    pub fn receive(msg: RawMsg) -> Self {
-        msg.into()
+    pub fn receive(msg: RawMsg) -> Option<Self> {
+        Self::try_from(msg).ok()
     }
 }
 
@@ -245,7 +246,7 @@ impl Answer {
 
     #[must_use]
     #[inline]
-    pub fn receive(msg: RawMsg) -> Self {
-        msg.into()
+    pub fn receive(msg: RawMsg) -> Option<Self> {
+        Self::try_from(msg).ok()
     }
 }

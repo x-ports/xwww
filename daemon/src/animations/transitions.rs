@@ -92,6 +92,10 @@ pub enum Effect {
     Parallax(Parallax),
     Melt(Melt),
     Shatter(Shatter),
+    Ink(Ink),
+    Paint(Paint),
+    Contagion(Contagion),
+    Waterdrop(Waterdrop),
 }
 
 impl Effect {
@@ -128,6 +132,10 @@ impl Effect {
             }
             TransitionType::Melt => Self::Melt(Melt::new(transition, dimensions)),
             TransitionType::Shatter => Self::Shatter(Shatter::new(transition, dimensions)),
+            TransitionType::Ink => Self::Ink(Ink::new(transition, dimensions)),
+            TransitionType::Paint => Self::Paint(Paint::new(transition, dimensions)),
+            TransitionType::Contagion => Self::Contagion(Contagion::new(transition, dimensions)),
+            TransitionType::Waterdrop => Self::Waterdrop(Waterdrop::new(transition, dimensions)),
             TransitionType::None => Self::None(None),
         }
     }
@@ -160,6 +168,10 @@ impl Effect {
             Effect::Parallax(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
             Effect::Melt(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
             Effect::Shatter(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Ink(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Paint(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Contagion(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
+            Effect::Waterdrop(effect) => effect.run(backend, objman, pixel_format, wallpapers, img),
         };
         // we only finish for real if we are doing a None or a Simple transition
         if done {
@@ -186,6 +198,10 @@ impl Effect {
                 Effect::Parallax(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
                 Effect::Melt(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
                 Effect::Shatter(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Ink(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Paint(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Contagion(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
+                Effect::Waterdrop(t) => Effect::Simple(Simple::new(new_nonzero(t.step.get()))),
             };
             return false;
         }
@@ -1359,7 +1375,9 @@ impl Static {
     fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
         let total = (dimensions.0 as usize) * (dimensions.1 as usize);
         let mut rng = seed(dimensions);
-        let thresholds: Vec<u8> = (0..total).map(|_| (xorshift(&mut rng) & 0xff) as u8).collect();
+        let thresholds: Vec<u8> = (0..total)
+            .map(|_| (xorshift(&mut rng) & 0xff) as u8)
+            .collect();
         Self {
             start: now_f64(),
             duration: f64::from(transition.duration).max(0.001),
@@ -1462,14 +1480,14 @@ impl Parallax {
 
                 match dir {
                     ParallaxDirection::Up => {
-                        let split = ((height as f32) * (1.0 - p)).clamp(0.0, height as f32) as usize;
+                        let split =
+                            ((height as f32) * (1.0 - p)).clamp(0.0, height as f32) as usize;
                         let shift = (height as f32 * 0.35 * p) as usize;
                         for y in 0..split {
                             let src_y = (y + shift).min(height - 1);
                             let src = src_y * stride;
                             let dst = y * stride;
-                            canvas[dst..dst + stride]
-                                .copy_from_slice(&previous[src..src + stride]);
+                            canvas[dst..dst + stride].copy_from_slice(&previous[src..src + stride]);
                         }
                         for y in split..height {
                             let src_y = y - split;
@@ -1497,7 +1515,8 @@ impl Parallax {
                             for x in split..width {
                                 let src = row + (x - split) * channels;
                                 let dst = row + x * channels;
-                                canvas[dst..dst + channels].copy_from_slice(&img[src..src + channels]);
+                                canvas[dst..dst + channels]
+                                    .copy_from_slice(&img[src..src + channels]);
                             }
                         }
                     }
@@ -1510,7 +1529,8 @@ impl Parallax {
                                 let src_x = x + (width - split);
                                 let src = row + src_x * channels;
                                 let dst = row + x * channels;
-                                canvas[dst..dst + channels].copy_from_slice(&img[src..src + channels]);
+                                canvas[dst..dst + channels]
+                                    .copy_from_slice(&img[src..src + channels]);
                             }
                             for x in split..width {
                                 let src_x = x.saturating_sub(shift);
@@ -1542,7 +1562,9 @@ impl Melt {
     fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
         let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
         let mut rng = seed(dimensions);
-        let speeds: Vec<f32> = (0..width).map(|_| 0.7 + rand_unit(&mut rng) * 0.7).collect();
+        let speeds: Vec<f32> = (0..width)
+            .map(|_| 0.7 + rand_unit(&mut rng) * 0.7)
+            .collect();
         let mut thresholds = vec![255u8; width * height];
         for y in 0..height {
             for x in 0..width {
@@ -1612,7 +1634,9 @@ impl Shatter {
             let j = rand_range(&mut rng, i + 1);
             order.swap(i, j);
         }
-        let angles: Vec<f32> = (0..total).map(|_| (rand_unit(&mut rng) - 0.5) * 1.2).collect();
+        let angles: Vec<f32> = (0..total)
+            .map(|_| (rand_unit(&mut rng) - 0.5) * 1.2)
+            .collect();
 
         Self {
             start: now_f64(),
@@ -1717,7 +1741,10 @@ impl Shatter {
                             // inverse rotate + scale to find the source pixel
                             let rx = (dx * cos + dy * sin) / scale + cx;
                             let ry = (-dx * sin + dy * cos) / scale + cy;
-                            if rx < x0 as f32 || rx >= x1 as f32 || ry < y0 as f32 || ry >= y1 as f32
+                            if rx < x0 as f32
+                                || rx >= x1 as f32
+                                || ry < y0 as f32
+                                || ry >= y1 as f32
                             {
                                 continue;
                             }
@@ -1744,9 +1771,733 @@ impl Shatter {
     }
 }
 
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    let delta = edge1 - edge0;
+    if delta.abs() <= f32::EPSILON {
+        return if value < edge0 { 0.0 } else { 1.0 };
+    }
+    let t = ((value - edge0) / delta).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+struct NoiseField {
+    cols: usize,
+    rows: usize,
+    scale: f32,
+    values: Box<[f32]>,
+}
+
+impl NoiseField {
+    fn new(width: usize, height: usize, scale: f32, rng: &mut u64) -> Self {
+        let scale = scale.max(1.0);
+        let cols = ((width as f32 / scale).ceil() as usize + 2).max(2);
+        let rows = ((height as f32 / scale).ceil() as usize + 2).max(2);
+        let mut values = Vec::with_capacity(cols * rows);
+        for _ in 0..cols * rows {
+            values.push(rand_unit(rng));
+        }
+        Self {
+            cols,
+            rows,
+            scale,
+            values: values.into_boxed_slice(),
+        }
+    }
+
+    fn sample(&self, x: f32, y: f32) -> f32 {
+        let fx = (x / self.scale).max(0.0);
+        let fy = (y / self.scale).max(0.0);
+        let x0 = (fx as usize).min(self.cols - 2);
+        let y0 = (fy as usize).min(self.rows - 2);
+        let tx = (fx - x0 as f32).clamp(0.0, 1.0);
+        let ty = (fy - y0 as f32).clamp(0.0, 1.0);
+        let sx = tx * tx * (3.0 - 2.0 * tx);
+        let sy = ty * ty * (3.0 - 2.0 * ty);
+        let index = y0 * self.cols + x0;
+        let top = self.values[index] + (self.values[index + 1] - self.values[index]) * sx;
+        let bottom = self.values[index + self.cols]
+            + (self.values[index + self.cols + 1] - self.values[index + self.cols]) * sx;
+        top + (bottom - top) * sy
+    }
+
+    fn sample_at(&self, x: usize, y: usize) -> f32 {
+        self.sample(x as f32, y as f32)
+    }
+}
+
+const INK_RIM: u8 = 20;
+const INK_HAZE: u8 = 12;
+
+struct Ink {
+    start: f64,
+    duration: f64,
+    thresholds: Box<[u8]>,
+    step: NonZeroU8,
+}
+
+impl Ink {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let (anchor_x, anchor_y) = transition.pos.to_pixel(dimensions, transition.invert_y);
+        let mut rng = seed(dimensions);
+
+        let mut drops: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(5);
+        drops.push((
+            anchor_x,
+            anchor_y,
+            0.0,
+            max_corner_distance(anchor_x, anchor_y, width, height),
+        ));
+        for index in 0..4 {
+            let center_x = (0.12 + 0.76 * rand_unit(&mut rng)) * width as f32;
+            let center_y = (0.12 + 0.76 * rand_unit(&mut rng)) * height as f32;
+            let start = (0.03 + 0.05 * index as f32 + 0.04 * rand_unit(&mut rng)).min(0.35);
+            drops.push((
+                center_x,
+                center_y,
+                start,
+                max_corner_distance(center_x, center_y, width, height),
+            ));
+        }
+
+        let min_dim = width.min(height) as f32;
+        let coarse = NoiseField::new(width, height, (min_dim / 9.0).clamp(8.0, 96.0), &mut rng);
+        let fine = NoiseField::new(width, height, (min_dim / 28.0).clamp(4.0, 32.0), &mut rng);
+        let mut raw = vec![0f32; width * height];
+
+        for y in 0..height {
+            for x in 0..width {
+                let broad = coarse.sample_at(x, y) * 0.65 + fine.sample_at(x + 17, y + 31) * 0.35;
+                let warp = (broad - 0.5) * 0.30;
+                let curl = (fine.sample_at(x + 43, y + 7) - 0.5) * 0.10;
+                let mut arrival = 1.0f32;
+                for &(center_x, center_y, start, far) in &drops {
+                    let dx = x as f32 - center_x;
+                    let dy = y as f32 - center_y;
+                    let normalized = ((dx * dx + dy * dy).sqrt() / far).clamp(0.0, 1.0);
+                    let value = start + (1.0 - start) * (normalized + warp + curl).clamp(0.0, 1.0);
+                    arrival = arrival.min(value);
+                }
+                raw[y * width + x] = arrival.clamp(0.0, 1.0);
+            }
+        }
+
+        let max_arrival = raw.iter().copied().fold(0.0f32, f32::max).max(0.001);
+        let thresholds: Vec<u8> = raw
+            .iter()
+            .map(|&arrival| ((arrival / max_arrival) * 255.0).clamp(0.0, 255.0) as u8)
+            .collect();
+
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            thresholds: thresholds.into_boxed_slice(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let channels = pixel_format.channels() as usize;
+        if t >= 1.0 {
+            for wallpaper in wallpapers.iter() {
+                wallpaper
+                    .borrow_mut()
+                    .canvas_change(backend, objman, pixel_format, |canvas| {
+                        canvas.copy_from_slice(img);
+                    });
+            }
+            return true;
+        }
+
+        let progress = (t * 255.0) as u8;
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for (index, &threshold) in self.thresholds.iter().enumerate() {
+                    let offset = index * channels;
+                    if threshold <= progress {
+                        let edge = progress - threshold;
+                        if edge < INK_RIM {
+                            let front = 1.0 - edge as f32 / INK_RIM as f32;
+                            for channel in 0..channels.min(3) {
+                                let value = img[offset + channel] as f32;
+                                let tinted = value * 0.10 + value * value / 255.0 * 0.75;
+                                canvas[offset + channel] = (value + (tinted - value) * front) as u8;
+                            }
+                            if channels == 4 {
+                                canvas[offset + 3] = img[offset + 3];
+                            }
+                        } else {
+                            canvas[offset..offset + channels]
+                                .copy_from_slice(&img[offset..offset + channels]);
+                        }
+                    } else {
+                        let ahead = threshold - progress;
+                        if ahead <= INK_HAZE {
+                            let alpha = (1.0 - ahead as f32 / INK_HAZE as f32) * 0.30;
+                            for channel in 0..channels {
+                                let old = canvas[offset + channel] as f32;
+                                let new = img[offset + channel] as f32;
+                                canvas[offset + channel] = (old + (new - old) * alpha) as u8;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        false
+    }
+}
+
+const CONTAGION_FLASH: u8 = 10;
+
+struct ContagionCell {
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+    threshold: u8,
+}
+
+struct Contagion {
+    start: f64,
+    duration: f64,
+    width: usize,
+    cells: Box<[ContagionCell]>,
+    revealed: usize,
+    flashing: Vec<(usize, u8)>,
+    step: NonZeroU8,
+}
+
+impl Contagion {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let cell_size = (height / 180).clamp(4, 16);
+        let cols = width.div_ceil(cell_size);
+        let rows = height.div_ceil(cell_size);
+        let aspect = width as f32 / height.max(1) as f32;
+        let mut rng = seed(dimensions);
+
+        let mut colonies = Vec::with_capacity(6);
+        let zero_colony = rand_range(&mut rng, 6);
+        for index in 0..6 {
+            let grid_x = (index % 3) as f32;
+            let grid_y = (index / 3) as f32;
+            let center_x = (grid_x + 0.12 + 0.76 * rand_unit(&mut rng)) / 3.0 * width as f32;
+            let center_y = (grid_y + 0.12 + 0.76 * rand_unit(&mut rng)) / 2.0 * height as f32;
+            let start = if index == zero_colony {
+                0.0
+            } else {
+                0.32 * rand_unit(&mut rng)
+            };
+            colonies.push((center_x, center_y, start));
+        }
+
+        let min_dim = width.min(height) as f32;
+        let coarse = NoiseField::new(width, height, (min_dim / 10.0).clamp(8.0, 96.0), &mut rng);
+        let fine = NoiseField::new(width, height, (min_dim / 30.0).clamp(4.0, 32.0), &mut rng);
+        let mut raw = Vec::with_capacity(cols * rows);
+        let mut cells = Vec::with_capacity(cols * rows);
+
+        for row in 0..rows {
+            for col in 0..cols {
+                let x0 = col * cell_size;
+                let y0 = row * cell_size;
+                let x1 = (x0 + cell_size).min(width);
+                let y1 = (y0 + cell_size).min(height);
+                let center_x = (x0 + x1) as f32 / 2.0;
+                let center_y = (y0 + y1) as f32 / 2.0;
+                let warp_x = (coarse.sample_at(x0, y0) - 0.5) * cell_size as f32 * 0.75;
+                let warp_y = (coarse.sample_at(x0 + 29, y0 + 11) - 0.5) * cell_size as f32 * 0.75;
+                let rough = 0.75 + 0.5 * fine.sample_at(x0 + 7, y0 + 53);
+                let mut arrival = f32::MAX;
+                for &(colony_x, colony_y, start) in &colonies {
+                    let dx = (center_x + warp_x - colony_x) * aspect;
+                    let dy = center_y + warp_y - colony_y;
+                    arrival = arrival.min(start + (dx * dx + dy * dy).sqrt() * rough);
+                }
+                raw.push(arrival + 0.03 * rand_unit(&mut rng));
+                cells.push(ContagionCell {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    threshold: 0,
+                });
+            }
+        }
+
+        let max_arrival = raw.iter().copied().fold(0.0f32, f32::max).max(0.001);
+        for (cell, arrival) in cells.iter_mut().zip(raw) {
+            cell.threshold = ((arrival / max_arrival) * 255.0).clamp(0.0, 255.0) as u8;
+        }
+        cells.sort_unstable_by_key(|cell| cell.threshold);
+
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            width,
+            cells: cells.into_boxed_slice(),
+            revealed: 0,
+            flashing: Vec::new(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let channels = pixel_format.channels() as usize;
+        if t >= 1.0 {
+            for wallpaper in wallpapers.iter() {
+                wallpaper
+                    .borrow_mut()
+                    .canvas_change(backend, objman, pixel_format, |canvas| {
+                        canvas.copy_from_slice(img);
+                    });
+            }
+            return true;
+        }
+
+        let progress = (t * 255.0) as u8;
+        let target = self
+            .cells
+            .partition_point(|cell| cell.threshold <= progress);
+        let start = self.revealed;
+        self.revealed = target;
+
+        let mut expired = Vec::new();
+        self.flashing.retain(|&(index, end)| {
+            if end <= progress {
+                expired.push(index);
+                false
+            } else {
+                true
+            }
+        });
+
+        let mut new_normal = Vec::new();
+        for index in start..target {
+            let cell = &self.cells[index];
+            if progress - cell.threshold < CONTAGION_FLASH {
+                self.flashing
+                    .push((index, cell.threshold.saturating_add(CONTAGION_FLASH)));
+            } else {
+                new_normal.push(index);
+            }
+        }
+
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let width = self.width;
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for &index in &new_normal {
+                    draw_contagion_cell(canvas, width, &self.cells[index], img, channels, false);
+                }
+                for &index in &expired {
+                    draw_contagion_cell(canvas, width, &self.cells[index], img, channels, false);
+                }
+                for &(index, _) in &self.flashing {
+                    draw_contagion_cell(canvas, width, &self.cells[index], img, channels, true);
+                }
+            });
+        }
+        false
+    }
+}
+
+fn draw_contagion_cell(
+    canvas: &mut [u8],
+    width: usize,
+    cell: &ContagionCell,
+    img: &[u8],
+    channels: usize,
+    flash: bool,
+) {
+    if flash {
+        for y in cell.y0..cell.y1 {
+            for x in cell.x0..cell.x1 {
+                let offset = (y * width + x) * channels;
+                for channel in 0..channels.min(3) {
+                    let value = img[offset + channel] as f32;
+                    canvas[offset + channel] = (value + (255.0 - value) * 0.65) as u8;
+                }
+                if channels == 4 {
+                    canvas[offset + 3] = img[offset + 3];
+                }
+            }
+        }
+    } else {
+        for y in cell.y0..cell.y1 {
+            let offset = (y * width + cell.x0) * channels;
+            let len = (cell.x1 - cell.x0) * channels;
+            canvas[offset..offset + len].copy_from_slice(&img[offset..offset + len]);
+        }
+    }
+}
+
+struct Waterdrop {
+    start: f64,
+    duration: f64,
+    center_x: f32,
+    center_y: f32,
+    width: usize,
+    height: usize,
+    max_dist: f32,
+    distances: Box<[u16]>,
+    step: NonZeroU8,
+}
+
+impl Waterdrop {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let (center_x, center_y) = transition.pos.to_pixel(dimensions, transition.invert_y);
+        let max_dist = (max_corner_distance(center_x, center_y, width, height)
+            / height.max(1) as f32)
+            .max(0.001);
+        let mut distances = vec![0u16; width * height];
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - center_x;
+                let dy = y as f32 - center_y;
+                let normalized =
+                    ((dx * dx + dy * dy).sqrt() / height.max(1) as f32 / max_dist).clamp(0.0, 1.0);
+                distances[y * width + x] = (normalized * 65535.0) as u16;
+            }
+        }
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            center_x,
+            center_y,
+            width,
+            height,
+            max_dist,
+            distances: distances.into_boxed_slice(),
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let channels = pixel_format.channels() as usize;
+        if t >= 1.0 {
+            for wallpaper in wallpapers.iter() {
+                wallpaper
+                    .borrow_mut()
+                    .canvas_change(backend, objman, pixel_format, |canvas| {
+                        canvas.copy_from_slice(img);
+                    });
+            }
+            return true;
+        }
+
+        let tf = t as f32;
+        let eased = tf * 0.6 + (1.0 - (1.0 - tf) * (1.0 - tf)) * 0.4;
+        let wave_number = 60.0f32;
+        let lambda = core::f32::consts::TAU / wave_number;
+        let edge = 0.35 * lambda;
+        let soft = 0.1 * lambda;
+        let trail = 3.0 * lambda;
+        let front = -0.3 * lambda + eased * (self.max_dist + edge + soft + 0.01 + 0.3 * lambda);
+        let calm = (1.0 - smoothstep(0.55, 1.0, tf)).powi(2);
+        let refraction = 0.015;
+        let highlight = 0.5;
+
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let width = self.width;
+            let height = self.height;
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for index in 0..self.distances.len() {
+                    let distance = (self.distances[index] as f32 / 65535.0) * self.max_dist;
+                    let s = front - distance;
+                    let offset = index * channels;
+                    if s < edge - soft {
+                        continue;
+                    }
+                    if s > edge + soft + trail {
+                        canvas[offset..offset + channels]
+                            .copy_from_slice(&img[offset..offset + channels]);
+                        continue;
+                    }
+
+                    let x = index % width;
+                    let y = index / width;
+                    let dx = x as f32 - self.center_x;
+                    let dy = y as f32 - self.center_y;
+                    let radius = (dx * dx + dy * dy).sqrt();
+                    let radius_norm = radius / height as f32;
+                    let dir_x = if radius > 0.0001 { dx / radius } else { 0.0 };
+                    let dir_y = if radius > 0.0001 { dy / radius } else { 0.0 };
+
+                    let step = 0.02 * lambda;
+                    let wave = water_wave(s, wave_number, lambda, tf);
+                    let radius_inner = (radius_norm - step).max(0.0);
+                    let slope = calm
+                        * (water_wave(front - radius_norm - step, wave_number, lambda, tf)
+                            - water_wave(front - radius_inner, wave_number, lambda, tf))
+                        / ((radius_norm + step - radius_inner) * wave_number).max(0.0001);
+
+                    let offset_x = dir_x * slope * refraction * height as f32;
+                    let offset_y = dir_y * slope * refraction * height as f32;
+                    let sample_x = mirror_coord(x as f32 - offset_x, width);
+                    let sample_y = mirror_coord(y as f32 - offset_y, height);
+                    let source = (sample_y * width + sample_x) * channels;
+                    let mix = smoothstep(edge - soft, edge + soft, s);
+                    let lit = -(-0.6 * dir_x + 0.8 * dir_y) * slope;
+                    let glint = highlight
+                        * (0.2 * wave * calm + 0.6 * smoothstep(0.2, 0.9, lit)
+                            - 0.3 * smoothstep(0.2, 0.9, -lit));
+
+                    for channel in 0..channels.min(3) {
+                        let old = canvas[source + channel] as f32;
+                        let new = img[source + channel] as f32;
+                        let value = old + (new - old) * mix + glint * 255.0;
+                        canvas[offset + channel] = value.clamp(0.0, 255.0) as u8;
+                    }
+                    if channels == 4 {
+                        canvas[offset + 3] = img[source + 3];
+                    }
+                }
+            });
+        }
+        false
+    }
+}
+
+fn water_wave(s: f32, k: f32, lambda: f32, t: f32) -> f32 {
+    let envelope = smoothstep(-0.3 * lambda, 0.6 * lambda, s) * (-s / (3.5 * lambda)).exp();
+    envelope * (k * s + 30.0 * t).sin()
+}
+
+fn mirror_coord(value: f32, size: usize) -> usize {
+    let size = size as i64;
+    if size <= 1 {
+        return 0;
+    }
+    let period = size * 2;
+    let mut mirrored = (value.floor() as i64).rem_euclid(period);
+    if mirrored >= size {
+        mirrored = period - 1 - mirrored;
+    }
+    mirrored as usize
+}
+
+struct BrushStroke {
+    start: u8,
+    center_x: f32,
+    center_y: f32,
+    half_len: f32,
+    half_width: f32,
+    cos: f32,
+    sin: f32,
+    sample: usize,
+    shade: f32,
+    color: [u8; 4],
+}
+
+struct Paint {
+    start: f64,
+    duration: f64,
+    width: usize,
+    height: usize,
+    strokes: Box<[BrushStroke]>,
+    fine: Box<[u8]>,
+    drawn: usize,
+    colors_ready: bool,
+    step: NonZeroU8,
+}
+
+impl Paint {
+    fn new(transition: &Transition, dimensions: (u32, u32)) -> Self {
+        let (width, height) = (dimensions.0 as usize, dimensions.1 as usize);
+        let mut rng = seed(dimensions);
+        let base = height as f32 * 0.30;
+        let base_angle = (transition.angle as f32).to_radians();
+        let layers = [
+            (1.0f32, 0.0f32, 0.12f32),
+            (0.62, 0.08, 0.24),
+            (0.38, 0.18, 0.36),
+            (0.24, 0.28, 0.50),
+        ];
+        let diagonal = ((width * width + height * height) as f32).sqrt();
+        let mut strokes = Vec::new();
+
+        for (layer, (scale, start_lo, start_hi)) in layers.iter().enumerate() {
+            let size = (base * scale).max(8.0);
+            let row_height = (size * 0.4).max(4.0);
+            let column_width = (size * 0.8).max(6.0);
+            let angle =
+                base_angle + (layer as f32 - 1.5) * 0.22 + (rand_unit(&mut rng) - 0.5) * 0.15;
+            let (sin, cos) = angle.sin_cos();
+            let rows = (diagonal / row_height).ceil() as i32 + 2;
+            let cols = (diagonal / column_width).ceil() as i32 + 2;
+
+            for row in -1..=rows {
+                let shift = rand_unit(&mut rng) * column_width;
+                for col in -1..=cols {
+                    let center_x = col as f32 * column_width + shift - diagonal / 2.0
+                        + (rand_unit(&mut rng) - 0.5) * column_width * 0.15;
+                    let center_y = row as f32 * row_height - diagonal / 2.0
+                        + (rand_unit(&mut rng) - 0.5) * row_height * 0.2;
+                    let half_len = size * (0.30 + 0.16 * rand_unit(&mut rng));
+                    let half_width = size * (0.075 + 0.035 * rand_unit(&mut rng));
+                    let extent = half_len + half_width + 1.0;
+                    if center_x + extent < 0.0
+                        || center_x - extent > width as f32
+                        || center_y + extent < 0.0
+                        || center_y - extent > height as f32
+                    {
+                        continue;
+                    }
+                    let start =
+                        ((start_lo + rand_unit(&mut rng) * (start_hi - start_lo)) * 255.0) as u8;
+                    let sample_x = center_x.clamp(0.0, (width - 1) as f32) as usize;
+                    let sample_y = center_y.clamp(0.0, (height - 1) as f32) as usize;
+                    strokes.push(BrushStroke {
+                        start,
+                        center_x,
+                        center_y,
+                        half_len,
+                        half_width,
+                        cos,
+                        sin,
+                        sample: sample_y * width + sample_x,
+                        shade: 0.80 + 0.35 * rand_unit(&mut rng),
+                        color: [0; 4],
+                    });
+                }
+            }
+        }
+        strokes.sort_unstable_by_key(|stroke| stroke.start);
+
+        let min_dim = width.min(height) as f32;
+        let coarse = NoiseField::new(width, height, (min_dim / 10.0).clamp(8.0, 96.0), &mut rng);
+        let fine = NoiseField::new(width, height, (min_dim / 30.0).clamp(4.0, 32.0), &mut rng);
+        let mut fine_thresholds = vec![255u8; width * height];
+        for y in 0..height {
+            for x in 0..width {
+                let value = coarse.sample_at(x, y) * 0.65 + fine.sample_at(x + 13, y + 29) * 0.35;
+                fine_thresholds[y * width + x] = (128.0 + 127.0 * value.clamp(0.0, 1.0)) as u8;
+            }
+        }
+
+        Self {
+            start: now_f64(),
+            duration: f64::from(transition.duration).max(0.001),
+            width,
+            height,
+            strokes: strokes.into_boxed_slice(),
+            fine: fine_thresholds.into_boxed_slice(),
+            drawn: 0,
+            colors_ready: false,
+            step: transition.step,
+        }
+    }
+
+    fn run(
+        &mut self,
+        backend: &mut Waybackend,
+        objman: &mut ObjectManager<WaylandObject>,
+        pixel_format: PixelFormat,
+        wallpapers: &mut [WallpaperCell],
+        img: &[u8],
+    ) -> bool {
+        let channels = pixel_format.channels() as usize;
+        if !self.colors_ready {
+            for stroke in self.strokes.iter_mut() {
+                let offset = stroke.sample * channels;
+                stroke.color[..channels].copy_from_slice(&img[offset..offset + channels]);
+                for channel in 0..channels.min(3) {
+                    stroke.color[channel] =
+                        (stroke.color[channel] as f32 * stroke.shade).min(255.0) as u8;
+                }
+            }
+            self.colors_ready = true;
+        }
+
+        let t = (elapsed(self.start) / self.duration).clamp(0.0, 1.0);
+        let progress = (t * 255.0) as u8;
+        let target = self
+            .strokes
+            .partition_point(|stroke| stroke.start <= progress);
+        let start = self.drawn;
+        self.drawn = target;
+
+        for wallpaper in wallpapers.iter() {
+            let mut wallpaper = wallpaper.borrow_mut();
+            let width = self.width;
+            let height = self.height;
+            wallpaper.canvas_change(backend, objman, pixel_format, |canvas| {
+                for index in start..target {
+                    draw_brush(canvas, width, height, &self.strokes[index], channels);
+                }
+                reveal_by_threshold(canvas, img, &self.fine, channels, progress);
+            });
+        }
+
+        t >= 1.0
+    }
+}
+
+fn draw_brush(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    stroke: &BrushStroke,
+    channels: usize,
+) {
+    let extent = stroke.half_len + stroke.half_width + 1.0;
+    let x0 = (stroke.center_x - extent).max(0.0) as usize;
+    let x1 = ((stroke.center_x + extent).min(width as f32)) as usize;
+    let y0 = (stroke.center_y - extent).max(0.0) as usize;
+    let y1 = ((stroke.center_y + extent).min(height as f32)) as usize;
+    let width_sq = stroke.half_width * stroke.half_width;
+
+    for y in y0..y1 {
+        let dy = y as f32 + 0.5 - stroke.center_y;
+        for x in x0..x1 {
+            let dx = x as f32 + 0.5 - stroke.center_x;
+            let along = dx * stroke.cos + dy * stroke.sin;
+            let across = -dx * stroke.sin + dy * stroke.cos;
+            let clamped = along.clamp(-stroke.half_len, stroke.half_len);
+            let delta = along - clamped;
+            if delta * delta + across * across <= width_sq {
+                let offset = (y * width + x) * channels;
+                canvas[offset..offset + channels].copy_from_slice(&stroke.color[..channels]);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static CLOCK_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn change_byte() {
@@ -1772,5 +2523,69 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn test_transition(transition_type: TransitionType) -> Transition {
+        Transition {
+            transition_type,
+            duration: 1.0,
+            step: NonZeroU8::new(90).unwrap(),
+            fps: 30,
+            angle: 45.0,
+            pos: common::ipc::Position::new(
+                common::ipc::Coord::Percent(0.5),
+                common::ipc::Coord::Percent(0.5),
+            ),
+            bezier: (0.54, 0.0, 0.34, 0.99),
+            wave: (20.0, 20.0),
+            invert_y: false,
+        }
+    }
+
+    #[test]
+    fn ink_mask_is_progressive() {
+        let _guard = CLOCK_LOCK.lock().unwrap();
+        let effect = Ink::new(&test_transition(TransitionType::Ink), (96, 64));
+        assert_eq!(effect.thresholds.len(), 96 * 64);
+        assert!(effect.thresholds.iter().any(|&value| value < 64));
+        assert!(effect.thresholds.iter().any(|&value| value > 192));
+    }
+
+    #[test]
+    fn contagion_cells_are_sorted_and_progressive() {
+        let _guard = CLOCK_LOCK.lock().unwrap();
+        let effect = Contagion::new(&test_transition(TransitionType::Contagion), (96, 64));
+        assert!(!effect.cells.is_empty());
+        assert!(
+            effect
+                .cells
+                .windows(2)
+                .all(|window| window[0].threshold <= window[1].threshold)
+        );
+        assert!(effect.cells.iter().any(|cell| cell.threshold < 128));
+        assert!(effect.cells.iter().any(|cell| cell.threshold >= 128));
+    }
+
+    #[test]
+    fn waterdrop_distance_field_spans_the_frame() {
+        let _guard = CLOCK_LOCK.lock().unwrap();
+        let effect = Waterdrop::new(&test_transition(TransitionType::Waterdrop), (96, 64));
+        assert_eq!(effect.distances.len(), 96 * 64);
+        assert!(effect.distances.contains(&0));
+        assert!(effect.distances.contains(&u16::MAX));
+    }
+
+    #[test]
+    fn paint_strokes_are_sorted_and_detail_starts_late() {
+        let _guard = CLOCK_LOCK.lock().unwrap();
+        let effect = Paint::new(&test_transition(TransitionType::Paint), (96, 64));
+        assert!(!effect.strokes.is_empty());
+        assert!(
+            effect
+                .strokes
+                .windows(2)
+                .all(|window| window[0].start <= window[1].start)
+        );
+        assert!(effect.fine.iter().all(|&value| value >= 128));
     }
 }

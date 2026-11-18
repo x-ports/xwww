@@ -302,58 +302,52 @@ impl BgInfo {
         i + 1
     }
 
-    pub(super) fn deserialize(bytes: &[u8]) -> (Self, usize) {
-        let name = deserialize_boxed_str(bytes);
+    pub(super) fn deserialize(bytes: &[u8]) -> Option<(Self, usize)> {
+        let name = deserialize_boxed_str(bytes)?;
         let mut i = name.len() + 4;
 
-        assert!(bytes.len() > i + 17);
-
         let dim = (
-            u32::from_ne_bytes(bytes[i..i + 4].try_into().unwrap()),
-            u32::from_ne_bytes(bytes[i + 4..i + 8].try_into().unwrap()),
+            u32::from_ne_bytes(bytes.get(i..i + 4)?.try_into().ok()?),
+            u32::from_ne_bytes(bytes.get(i + 4..i + 8)?.try_into().ok()?),
         );
         i += 8;
 
-        let scale_factor = if bytes[i] == 0 {
-            Scale::Output(
-                i32::from_ne_bytes(bytes[i + 1..i + 5].try_into().unwrap())
-                    .try_into()
-                    .unwrap(),
-            )
-        } else if bytes[i] == 1 {
-            Scale::Preferred(
-                i32::from_ne_bytes(bytes[i + 1..i + 5].try_into().unwrap())
-                    .try_into()
-                    .unwrap(),
-            )
-        } else {
-            Scale::Fractional(
-                i32::from_ne_bytes(bytes[i + 1..i + 5].try_into().unwrap())
-                    .try_into()
-                    .unwrap(),
-            )
+        let scale = bytes.get(i..i + 5)?;
+        let scale_value = i32::from_ne_bytes(scale.get(1..5)?.try_into().ok()?);
+        let scale_value = NonZeroI32::new(scale_value)?;
+        let scale_factor = match scale[0] {
+            0 => Scale::Output(scale_value),
+            1 => Scale::Preferred(scale_value),
+            2 => Scale::Fractional(scale_value),
+            _ => return None,
         };
         i += 5;
 
-        let img = if bytes[i] == 0 {
-            i += 5;
-            BgImg::Color([bytes[i - 4], bytes[i - 3], bytes[i - 2], bytes[i - 1]])
-        } else {
-            i += 1;
-            let path = deserialize_boxed_str(&bytes[i..]);
-            i += 4 + path.len();
-            BgImg::Img(path)
+        let img = match *bytes.get(i)? {
+            0 => {
+                let color = bytes.get(i + 1..i + 5)?;
+                i += 5;
+                BgImg::Color([color[0], color[1], color[2], color[3]])
+            }
+            1 => {
+                i += 1;
+                let path = deserialize_boxed_str(bytes.get(i..)?)?;
+                i += 4 + path.len();
+                BgImg::Img(path)
+            }
+            _ => return None,
         };
 
-        let pixel_format = match bytes[i] {
+        let pixel_format = match *bytes.get(i)? {
             0 => PixelFormat::Bgr,
             1 => PixelFormat::Rgb,
             2 => PixelFormat::Abgr,
-            _ => PixelFormat::Argb,
+            3 => PixelFormat::Argb,
+            _ => return None,
         };
         i += 1;
 
-        (
+        Some((
             Self {
                 name,
                 dim,
@@ -362,7 +356,7 @@ impl BgInfo {
                 pixel_format,
             },
             i,
-        )
+        ))
     }
 }
 
@@ -402,6 +396,10 @@ pub enum TransitionType {
     ParallaxInvert = 20,
     Melt = 21,
     Shatter = 22,
+    Ink = 23,
+    Paint = 24,
+    Contagion = 25,
+    Waterdrop = 26,
 }
 
 #[derive(Debug, Clone)]
@@ -465,8 +463,10 @@ impl Transition {
         buf.push_byte(*invert_y as u8);
     }
 
-    pub(super) fn deserialize(bytes: &[u8]) -> Self {
-        assert!(bytes.len() > 50);
+    pub(super) fn deserialize(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 51 {
+            return None;
+        }
         let transition_type = match bytes[0] {
             0 => TransitionType::Simple,
             1 => TransitionType::Fade,
@@ -491,41 +491,69 @@ impl Transition {
             20 => TransitionType::ParallaxInvert,
             21 => TransitionType::Melt,
             22 => TransitionType::Shatter,
-            _ => TransitionType::None,
+            23 => TransitionType::Ink,
+            24 => TransitionType::Paint,
+            25 => TransitionType::Contagion,
+            26 => TransitionType::Waterdrop,
+            _ => return None,
         };
-        let duration = f32::from_ne_bytes(bytes[1..5].try_into().unwrap());
-        let step = NonZeroU8::new(bytes[5]).expect("received step of 0");
-        let fps = u16::from_ne_bytes(bytes[6..8].try_into().unwrap());
-        let angle = f64::from_ne_bytes(bytes[8..16].try_into().unwrap());
+        let duration = f32::from_ne_bytes(bytes[1..5].try_into().ok()?);
+        if !duration.is_finite() || duration < 0.0 {
+            return None;
+        }
+        let step = NonZeroU8::new(bytes[5])?;
+        let fps = u16::from_ne_bytes(bytes[6..8].try_into().ok()?);
+        if fps == 0 {
+            return None;
+        }
+        let angle = f64::from_ne_bytes(bytes[8..16].try_into().ok()?);
+        if !angle.is_finite() {
+            return None;
+        }
         let pos = {
+            let x_value = f32::from_ne_bytes(bytes[17..21].try_into().ok()?);
+            let y_value = f32::from_ne_bytes(bytes[22..26].try_into().ok()?);
+            if !x_value.is_finite() || !y_value.is_finite() {
+                return None;
+            }
             let x = if bytes[16] == 0 {
-                Coord::Pixel(f32::from_ne_bytes(bytes[17..21].try_into().unwrap()))
+                Coord::Pixel(x_value)
             } else {
-                Coord::Percent(f32::from_ne_bytes(bytes[17..21].try_into().unwrap()))
+                Coord::Percent(x_value)
             };
             let y = if bytes[21] == 0 {
-                Coord::Pixel(f32::from_ne_bytes(bytes[22..26].try_into().unwrap()))
+                Coord::Pixel(y_value)
             } else {
-                Coord::Percent(f32::from_ne_bytes(bytes[22..26].try_into().unwrap()))
+                Coord::Percent(y_value)
             };
             Position { x, y }
         };
 
         let bezier = (
-            f32::from_ne_bytes(bytes[26..30].try_into().unwrap()),
-            f32::from_ne_bytes(bytes[30..34].try_into().unwrap()),
-            f32::from_ne_bytes(bytes[34..38].try_into().unwrap()),
-            f32::from_ne_bytes(bytes[38..42].try_into().unwrap()),
+            f32::from_ne_bytes(bytes[26..30].try_into().ok()?),
+            f32::from_ne_bytes(bytes[30..34].try_into().ok()?),
+            f32::from_ne_bytes(bytes[34..38].try_into().ok()?),
+            f32::from_ne_bytes(bytes[38..42].try_into().ok()?),
         );
+        if !bezier.0.is_finite()
+            || !bezier.1.is_finite()
+            || !bezier.2.is_finite()
+            || !bezier.3.is_finite()
+        {
+            return None;
+        }
 
         let wave = (
-            f32::from_ne_bytes(bytes[42..46].try_into().unwrap()),
-            f32::from_ne_bytes(bytes[46..50].try_into().unwrap()),
+            f32::from_ne_bytes(bytes[42..46].try_into().ok()?),
+            f32::from_ne_bytes(bytes[46..50].try_into().ok()?),
         );
+        if !wave.0.is_finite() || !wave.1.is_finite() {
+            return None;
+        }
 
         let invert_y = bytes[50] != 0;
 
-        Self {
+        Some(Self {
             transition_type,
             duration,
             step,
@@ -535,7 +563,7 @@ impl Transition {
             bezier,
             wave,
             invert_y,
-        }
+        })
     }
 }
 
@@ -613,29 +641,31 @@ pub struct ImgReq {
 }
 
 impl ImgReq {
-    pub(super) fn deserialize(mmap: &Mmap, bytes: &[u8]) -> (Self, usize) {
+    pub(super) fn deserialize(mmap: &Mmap, bytes: &[u8]) -> Option<(Self, usize)> {
         let mut i = 0;
-        let path = MmappedStr::new(mmap, &bytes[i..]);
+        let path = MmappedStr::new_checked(mmap, bytes.get(i..)?)?;
         i += 4 + path.str().len();
 
-        let img = MmappedBytes::new(mmap, &bytes[i..]);
+        let img = MmappedBytes::new_checked(mmap, bytes.get(i..)?)?;
         i += 4 + img.bytes().len();
 
+        let dim_bytes = bytes.get(i..i + 8)?;
         let dim = (
-            u32::from_ne_bytes(bytes[i..i + 4].try_into().unwrap()),
-            u32::from_ne_bytes(bytes[i + 4..i + 8].try_into().unwrap()),
+            u32::from_ne_bytes(dim_bytes.get(0..4)?.try_into().ok()?),
+            u32::from_ne_bytes(dim_bytes.get(4..8)?.try_into().ok()?),
         );
         i += 8;
 
-        let format = match bytes[i] {
+        let format = match *bytes.get(i)? {
             0 => PixelFormat::Bgr,
             1 => PixelFormat::Rgb,
             2 => PixelFormat::Abgr,
-            _ => PixelFormat::Argb,
+            3 => PixelFormat::Argb,
+            _ => return None,
         };
         i += 1;
 
-        (
+        Some((
             Self {
                 path,
                 dim,
@@ -643,7 +673,7 @@ impl ImgReq {
                 img,
             },
             i,
-        )
+        ))
     }
 }
 
@@ -723,9 +753,83 @@ pub struct ImageReq {
     pub animations: Option<Vec<Animation>>,
 }
 
-fn deserialize_boxed_str(bytes: &[u8]) -> Box<str> {
-    let size = u32::from_ne_bytes(bytes[0..4].try_into().unwrap()) as usize;
-    core::str::from_utf8(&bytes[4..4 + size])
-        .expect("received a non utf8 string from socket")
-        .into()
+fn deserialize_boxed_str(bytes: &[u8]) -> Option<Box<str>> {
+    let size = u32::from_ne_bytes(bytes.get(0..4)?.try_into().ok()?) as usize;
+    let end = 4usize.checked_add(size)?;
+    core::str::from_utf8(bytes.get(4..end)?)
+        .ok()
+        .map(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn transition_bytes(transition_type: u8) -> [u8; 51] {
+        let mut bytes = [0u8; 51];
+        bytes[0] = transition_type;
+        bytes[1..5].copy_from_slice(&3.0f32.to_ne_bytes());
+        bytes[5] = 90;
+        bytes[6..8].copy_from_slice(&30u16.to_ne_bytes());
+        bytes[8..16].copy_from_slice(&45.0f64.to_ne_bytes());
+        bytes[16] = 1;
+        bytes[17..21].copy_from_slice(&0.5f32.to_ne_bytes());
+        bytes[21] = 1;
+        bytes[22..26].copy_from_slice(&0.5f32.to_ne_bytes());
+        for (index, value) in [0.54f32, 0.0, 0.34, 0.99].iter().enumerate() {
+            let start = 26 + index * 4;
+            bytes[start..start + 4].copy_from_slice(&value.to_ne_bytes());
+        }
+        bytes[42..46].copy_from_slice(&20.0f32.to_ne_bytes());
+        bytes[46..50].copy_from_slice(&20.0f32.to_ne_bytes());
+        bytes[50] = 0;
+        bytes
+    }
+
+    #[test]
+    fn deserializes_new_transition_types() {
+        for (kind, expected) in [
+            (23, "ink"),
+            (24, "paint"),
+            (25, "contagion"),
+            (26, "waterdrop"),
+        ] {
+            let transition = Transition::deserialize(&transition_bytes(kind)).unwrap();
+            let matched = match transition.transition_type {
+                TransitionType::Ink => "ink",
+                TransitionType::Paint => "paint",
+                TransitionType::Contagion => "contagion",
+                TransitionType::Waterdrop => "waterdrop",
+                _ => "other",
+            };
+            assert_eq!(matched, expected);
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_transitions() {
+        assert!(Transition::deserialize(&transition_bytes(0)[..50]).is_none());
+
+        let mut bytes = transition_bytes(0);
+        bytes[5] = 0;
+        assert!(Transition::deserialize(&bytes).is_none());
+
+        let mut bytes = transition_bytes(0);
+        bytes[6..8].copy_from_slice(&0u16.to_ne_bytes());
+        assert!(Transition::deserialize(&bytes).is_none());
+
+        let mut bytes = transition_bytes(0);
+        bytes[1..5].copy_from_slice(&f32::NAN.to_ne_bytes());
+        assert!(Transition::deserialize(&bytes).is_none());
+
+        assert!(Transition::deserialize(&transition_bytes(200)).is_none());
+    }
+
+    #[test]
+    fn rejects_truncated_strings() {
+        assert!(deserialize_boxed_str(&[]).is_none());
+        assert!(deserialize_boxed_str(&[1, 0, 0, 0]).is_none());
+        assert!(deserialize_boxed_str(&[1, 0, 0, 0, b'a']).is_some());
+        assert!(deserialize_boxed_str(&[2, 0, 0, 0, b'a']).is_none());
+    }
 }

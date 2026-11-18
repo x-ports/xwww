@@ -111,6 +111,10 @@ pub enum TransitionType {
     Shatter,
     Clock,
     Zoom,
+    Ink,
+    Paint,
+    Contagion,
+    Waterdrop,
 }
 
 impl std::str::FromStr for TransitionType {
@@ -148,8 +152,12 @@ impl std::str::FromStr for TransitionType {
             "parallax-invert" => Ok(Self::ParallaxInvert),
             "melt" => Ok(Self::Melt),
             "shatter" => Ok(Self::Shatter),
+            "ink" => Ok(Self::Ink),
+            "paint" => Ok(Self::Paint),
+            "contagion" => Ok(Self::Contagion),
+            "waterdrop" => Ok(Self::Waterdrop),
             _ => Err("unrecognized transition type.\nValid transitions are:\n\
-                     \tsimple | fade | left | right | top | bottom | wipe | grow | center | outer | random | wave | glitch | decrypt | dissolve | clock | zoom | pixelate | ripple | blinds | spiral | static | parallax | parallax-left | parallax-right | parallax-invert | melt | shatter\n\
+                     \tsimple | fade | left | right | top | bottom | wipe | grow | center | outer | random | wave | glitch | decrypt | dissolve | clock | zoom | pixelate | ripple | blinds | spiral | static | parallax | parallax-left | parallax-right | parallax-invert | melt | shatter | ink | paint | contagion | waterdrop\n\
                      see xwww img --help for more details"),
         }
     }
@@ -630,7 +638,9 @@ pub struct Img {
     ///Possible transitions are:
     ///
     ///none | simple | fade | left | right | top | bottom | wipe | wave | grow | center | any |
-    /// outer | random | glitch | decrypt | dissolve | clock | zoom
+    /// outer | random | glitch | decrypt | dissolve | clock | zoom | pixelate | ripple | blinds |
+    /// spiral | static | parallax | parallax-left | parallax-right | parallax-invert | melt |
+    /// shatter | ink | paint | contagion | waterdrop
     ///
     ///The 'left', 'right', 'top' and 'bottom' options make the transition happen from that
     ///position to its opposite in the screen.
@@ -691,7 +701,12 @@ pub struct Img {
     ///How long the transition takes to complete in seconds.
     ///
     ///Note that this doesn't work with the 'simple' transition
-    #[arg(long, env = "XWWW_TRANSITION_DURATION", default_value = "3")]
+    #[arg(
+        long,
+        env = "XWWW_TRANSITION_DURATION",
+        default_value = "3",
+        value_parser = parse_duration
+    )]
     pub transition_duration: f32,
 
     ///Frame rate for the transition effect.
@@ -700,18 +715,23 @@ pub struct Img {
     ///
     ///Also note this is **different** from the transition-step. That one controls by how much we
     ///approach the new image every frame.
-    #[arg(long, env = "XWWW_TRANSITION_FPS", default_value = "30")]
+    #[arg(
+        long,
+        env = "XWWW_TRANSITION_FPS",
+        default_value = "30",
+        value_parser = parse_fps
+    )]
     pub transition_fps: u16,
 
-    ///This is used for the 'wipe' and 'wave' transitions. It controls the angle of the wipe
+    ///This is used for the 'wipe', 'wave' and 'paint' transitions. It controls the angle of the wipe or the brush direction
     ///
     ///Note that the angle is in degrees, where '0' is right to left and '90' is top to bottom,
     /// and '270' bottom to top
     #[arg(long, env = "XWWW_TRANSITION_ANGLE", default_value = "45")]
     pub transition_angle: f64,
 
-    ///This is only used for the 'grow','outer' transitions. It controls the center of circle
-    /// (default is 'center').
+    ///This is used for the 'grow', 'outer', 'ink', 'contagion' and 'waterdrop' transitions. It
+    /// controls the center of the effect or the anchor of the main ink bloom (default is 'center').
     ///
     ///Position values can be given in both percentage values and pixel values:
     ///  float values are interpreted as percentages and integer values as pixel values
@@ -740,6 +760,26 @@ pub struct Img {
     pub invert_y: bool,
 }
 
+fn parse_duration(raw: &str) -> Result<f32, String> {
+    let value = raw
+        .parse::<f32>()
+        .map_err(|_| format!("invalid duration '{raw}'"))?;
+    if !value.is_finite() || value < 0.0 {
+        return Err("duration must be a finite number greater than or equal to 0".to_string());
+    }
+    Ok(value)
+}
+
+fn parse_fps(raw: &str) -> Result<u16, String> {
+    let value = raw
+        .parse::<u16>()
+        .map_err(|_| format!("invalid frame rate '{raw}'"))?;
+    if value == 0 {
+        return Err("frame rate must be at least 1".to_string());
+    }
+    Ok(value)
+}
+
 fn parse_wave(raw: &str) -> Result<(f32, f32), String> {
     let mut iter = raw.split(',');
     let mut parse = || {
@@ -749,6 +789,9 @@ fn parse_wave(raw: &str) -> Result<(f32, f32), String> {
     };
 
     let parsed = (parse()?, parse()?);
+    if !parsed.0.is_finite() || !parsed.1.is_finite() {
+        return Err("wave values must be finite".to_string());
+    }
     Ok(parsed)
 }
 
@@ -763,6 +806,13 @@ fn parse_bezier(raw: &str) -> Result<(f32, f32, f32, f32), String> {
     let parsed = (parse()?, parse()?, parse()?, parse()?);
     if parsed == (0.0, 0.0, 0.0, 0.0) {
         return Err("Invalid bezier curve: 0,0,0,0 (try using 0,0,1,1 instead)".to_string());
+    }
+    if !parsed.0.is_finite()
+        || !parsed.1.is_finite()
+        || !parsed.2.is_finite()
+        || !parsed.3.is_finite()
+    {
+        return Err("bezier values must be finite".to_string());
     }
     Ok(parsed)
 }
@@ -873,16 +923,16 @@ fn parse_coords(raw: &str) -> Result<CliPosition, String> {
     let parsed_x = match x.parse::<u32>() {
         Ok(x) => CliCoord::Pixel(x as f32),
         Err(_) => match x.parse::<f32>() {
-            Ok(x) => CliCoord::Percent(x),
-            Err(_) => return Err(format!("Invalid x coord: {x}")),
+            Ok(x) if x.is_finite() => CliCoord::Percent(x),
+            _ => return Err(format!("Invalid x coord: {x}")),
         },
     };
 
     let parsed_y = match y.parse::<u32>() {
         Ok(y) => CliCoord::Pixel(y as f32),
         Err(_) => match y.parse::<f32>() {
-            Ok(y) => CliCoord::Percent(y),
-            Err(_) => return Err(format!("Invalid y coord: {y}")),
+            Ok(y) if y.is_finite() => CliCoord::Percent(y),
+            _ => return Err(format!("Invalid y coord: {y}")),
         },
     };
 
@@ -1087,18 +1137,28 @@ pub struct SceneRun {
     /// How long the entry transition takes to complete, in seconds.
     ///
     /// The scene does not send further frames until it finishes. Ignored by `simple`.
-    #[arg(long, env = "XWWW_TRANSITION_DURATION", default_value = "1.0")]
+    #[arg(
+        long,
+        env = "XWWW_TRANSITION_DURATION",
+        default_value = "1.0",
+        value_parser = parse_duration
+    )]
     pub transition_duration: f32,
 
     /// Frame rate for the entry transition.
-    #[arg(long, env = "XWWW_TRANSITION_FPS", default_value = "144")]
+    #[arg(
+        long,
+        env = "XWWW_TRANSITION_FPS",
+        default_value = "144",
+        value_parser = parse_fps
+    )]
     pub transition_fps: u16,
 
-    /// Angle for the `wipe`/`wave` transitions, in degrees.
+    /// Angle for the `wipe`/`wave`/`paint` transitions, in degrees.
     #[arg(long, env = "XWWW_TRANSITION_ANGLE", default_value = "45")]
     pub transition_angle: f64,
 
-    /// Center used by `grow`/`outer`/`zoom`.
+    /// Center used by `grow`/`outer`/`zoom`/`ink`/`contagion`/`waterdrop`.
     #[arg(long, env = "XWWW_TRANSITION_POS", default_value = "center", value_parser = parse_coords)]
     pub transition_pos: CliPosition,
 
@@ -1151,6 +1211,7 @@ impl Img {
 impl SceneRun {
     /// View of this command's entry-transition flags for the shared transition builder.
     #[must_use]
+    #[cfg(feature = "scene")]
     pub fn transition_args(&self) -> TransitionArgs {
         TransitionArgs {
             transition_type: self.transition_type.clone(),
@@ -1202,5 +1263,38 @@ mod tests {
 
         let color = from_hex("eeeeeeee").unwrap();
         assert_eq!(color, [0xee, 0xee, 0xee, 0xee]);
+    }
+
+    #[test]
+    fn parses_primary_transition_names() {
+        assert!(matches!(
+            "ink".parse::<TransitionType>(),
+            Ok(TransitionType::Ink)
+        ));
+        assert!(matches!(
+            "paint".parse::<TransitionType>(),
+            Ok(TransitionType::Paint)
+        ));
+        assert!(matches!(
+            "contagion".parse::<TransitionType>(),
+            Ok(TransitionType::Contagion)
+        ));
+        assert!(matches!(
+            "waterdrop".parse::<TransitionType>(),
+            Ok(TransitionType::Waterdrop)
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_transition_numbers() {
+        assert!(parse_fps("0").is_err());
+        assert!(parse_fps("-1").is_err());
+        assert!(parse_fps("30").is_ok());
+        assert!(parse_duration("NaN").is_err());
+        assert!(parse_duration("inf").is_err());
+        assert!(parse_duration("-0.1").is_err());
+        assert!(parse_duration("1.5").is_ok());
+        assert!(parse_bezier("NaN,0,1,1").is_err());
+        assert!(parse_wave("inf,20").is_err());
     }
 }

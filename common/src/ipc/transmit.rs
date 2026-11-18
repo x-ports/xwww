@@ -102,33 +102,42 @@ impl TryFrom<Answer> for RawMsg {
 }
 
 // TODO: remove this ugly mess
-impl From<RawMsg> for RequestRecv {
-    fn from(value: RawMsg) -> Self {
-        match value.code {
+impl TryFrom<RawMsg> for RequestRecv {
+    type Error = ();
+
+    fn try_from(value: RawMsg) -> Result<Self, Self::Error> {
+        let request = match value.code {
             Code::ReqPing => Self::Ping,
             Code::ReqQuery => Self::Query,
             Code::ReqClear => {
-                let mmap = value.shm.unwrap();
+                let mmap = value.shm.ok_or(())?;
                 let bytes = mmap.slice();
-                let len = bytes[0] as usize;
+                let len = *bytes.first().ok_or(())? as usize;
                 let mut outputs = Vec::with_capacity(len);
                 let mut i = 1;
                 for _ in 0..len {
-                    let output = MmappedStr::new(&mmap, &bytes[i..]);
+                    let output =
+                        MmappedStr::new_checked(&mmap, bytes.get(i..).ok_or(())?).ok_or(())?;
                     i += 4 + output.str().len();
                     outputs.push(output);
                 }
-                let color = [bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]];
+                let color_slice = bytes.get(i..i + 4).ok_or(())?;
+                let color = [
+                    color_slice[0],
+                    color_slice[1],
+                    color_slice[2],
+                    color_slice[3],
+                ];
                 Self::Clear(ClearReq {
                     color,
                     outputs: outputs.into(),
                 })
             }
             Code::ReqImg => {
-                let mmap = value.shm.unwrap();
+                let mmap = value.shm.ok_or(())?;
                 let bytes = mmap.slice();
-                let transition = Transition::deserialize(&bytes[0..]);
-                let len = bytes[51] as usize;
+                let transition = Transition::deserialize(bytes.get(0..51).ok_or(())?).ok_or(())?;
+                let len = *bytes.get(51).ok_or(())? as usize;
 
                 let mut imgs = Vec::with_capacity(len);
                 let mut outputs = Vec::with_capacity(len);
@@ -136,27 +145,30 @@ impl From<RawMsg> for RequestRecv {
 
                 let mut i = 52;
                 for _ in 0..len {
-                    let (img, offset) = ImgReq::deserialize(&mmap, &bytes[i..]);
+                    let (img, offset) =
+                        ImgReq::deserialize(&mmap, bytes.get(i..).ok_or(())?).ok_or(())?;
                     i += offset;
                     imgs.push(img);
 
-                    let n_outputs = bytes[i] as usize;
+                    let n_outputs = *bytes.get(i).ok_or(())? as usize;
                     i += 1;
                     let mut out = Vec::with_capacity(n_outputs);
                     for _ in 0..n_outputs {
-                        let output = MmappedStr::new(&mmap, &bytes[i..]);
+                        let output =
+                            MmappedStr::new_checked(&mmap, bytes.get(i..).ok_or(())?).ok_or(())?;
                         i += 4 + output.str().len();
                         out.push(output);
                     }
                     outputs.push(out.into());
 
-                    if bytes[i] == 1 {
+                    let has_animation = *bytes.get(i).ok_or(())?;
+                    i += 1;
+                    if has_animation == 1 {
                         let (animation, offset) =
-                            Animation::deserialize(&mmap, &bytes[i + 1..]).unwrap();
+                            Animation::deserialize(&mmap, bytes.get(i..).ok_or(())?).ok_or(())?;
                         i += offset;
                         animations.push(animation);
                     }
-                    i += 1;
                 }
 
                 Self::Img(ImageReq {
@@ -175,33 +187,39 @@ impl From<RawMsg> for RequestRecv {
             Code::ReqUnpause => Self::Unpause,
             Code::ReqKill => Self::Kill,
             Code::ReqScreenshot => {
-                let mmap = value.shm.unwrap();
+                let mmap = value.shm.ok_or(())?;
                 let bytes = mmap.slice();
-                let output = MmappedStr::new(&mmap, bytes).str().to_string();
+                let output = MmappedStr::new_checked(&mmap, bytes)
+                    .ok_or(())?
+                    .str()
+                    .to_string();
                 Self::Screenshot(ScreenshotReq {
                     output: output.into(),
                 })
             }
-            _ => Self::Kill,
-        }
+            _ => return Err(()),
+        };
+        Ok(request)
     }
 }
 
-impl From<RawMsg> for Answer {
-    fn from(value: RawMsg) -> Self {
-        match value.code {
+impl TryFrom<RawMsg> for Answer {
+    type Error = ();
+
+    fn try_from(value: RawMsg) -> Result<Self, Self::Error> {
+        let answer = match value.code {
             Code::ResOk => Self::Ok,
             Code::ResConfigured => Self::Ping(true),
             Code::ResAwait => Self::Ping(false),
             Code::ResInfo => {
-                let mmap = value.shm.unwrap();
+                let mmap = value.shm.ok_or(())?;
                 let bytes = mmap.slice();
-                let len = bytes[0] as usize;
+                let len = *bytes.first().ok_or(())? as usize;
                 let mut bg_infos = Vec::with_capacity(len);
 
                 let mut i = 1;
                 for _ in 0..len {
-                    let (info, offset) = BgInfo::deserialize(&bytes[i..]);
+                    let (info, offset) = BgInfo::deserialize(bytes.get(i..).ok_or(())?).ok_or(())?;
                     i += offset;
                     bg_infos.push(info);
                 }
@@ -209,15 +227,17 @@ impl From<RawMsg> for Answer {
                 Self::Info(bg_infos.into())
             }
             Code::ResScreenshot => {
-                let mmap = value.shm.unwrap();
+                let mmap = value.shm.ok_or(())?;
                 let bytes = mmap.slice();
-                let width = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
-                let height = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
-                let rgb = bytes[8..].to_vec().into_boxed_slice();
+                let header = bytes.get(0..8).ok_or(())?;
+                let width = u32::from_ne_bytes([header[0], header[1], header[2], header[3]]);
+                let height = u32::from_ne_bytes([header[4], header[5], header[6], header[7]]);
+                let rgb = bytes.get(8..).ok_or(())?.to_vec().into_boxed_slice();
                 Self::Screenshot(ScreenshotData { width, height, rgb })
             }
-            _ => panic!("Received malformed answer from daemon"),
-        }
+            _ => return Err(()),
+        };
+        Ok(answer)
     }
 }
 // TODO: end remove ugly mess block
@@ -351,7 +371,14 @@ impl IpcSocket {
         }
 
         let code = u64::from_ne_bytes(buf[0..8].try_into().unwrap()).try_into()?;
-        let len = u64::from_ne_bytes(buf[8..16].try_into().unwrap()) as usize;
+        let raw_len = u64::from_ne_bytes(buf[8..16].try_into().unwrap());
+        let Ok(len) = usize::try_from(raw_len) else {
+            return Err(Errno::BADMSG).context(IpcErrorKind::MalformedMsg);
+        };
+        const MAX_SHM_LEN: usize = 1 << 30;
+        if len > MAX_SHM_LEN {
+            return Err(Errno::BADMSG).context(IpcErrorKind::MalformedMsg);
+        }
 
         let shm = if len == 0 {
             debug_assert!(
@@ -376,8 +403,74 @@ impl IpcSocket {
                 })
                 .ok_or(Errno::BADMSG)
                 .context(IpcErrorKind::MalformedMsg)?;
-            Some(Mmap::from_fd(file, len))
+            let stat = rustix::fs::fstat(&file).context(IpcErrorKind::MalformedMsg)?;
+            if stat.st_size < 0 || (stat.st_size as u64) < (len as u64) {
+                return Err(Errno::BADMSG).context(IpcErrorKind::MalformedMsg);
+            }
+            Some(Mmap::from_fd(file, len).context(IpcErrorKind::MemoryMapCreation)?)
         };
         Ok(RawMsg { code, shm })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_requests_without_shared_memory() {
+        assert!(
+            RequestRecv::receive(RawMsg {
+                code: Code::ReqImg,
+                shm: None
+            })
+            .is_none()
+        );
+        assert!(
+            RequestRecv::receive(RawMsg {
+                code: Code::ReqClear,
+                shm: None
+            })
+            .is_none()
+        );
+        assert!(
+            RequestRecv::receive(RawMsg {
+                code: Code::ResOk,
+                shm: None
+            })
+            .is_none()
+        );
+        assert!(matches!(
+            RequestRecv::receive(RawMsg {
+                code: Code::ReqPing,
+                shm: None
+            }),
+            Some(RequestRecv::Ping)
+        ));
+    }
+
+    #[test]
+    fn accepts_zero_length_screenshot_output() {
+        let mut mmap = Mmap::create(4).unwrap();
+        mmap.slice_mut().copy_from_slice(&0u32.to_ne_bytes());
+        let Some(RequestRecv::Screenshot(request)) = RequestRecv::receive(RawMsg {
+            code: Code::ReqScreenshot,
+            shm: Some(mmap),
+        }) else {
+            panic!("zero-length output was rejected");
+        };
+        assert_eq!(&*request.output, "");
+    }
+
+    #[test]
+    fn rejects_truncated_screenshot_answer() {
+        let mmap = Mmap::create(4).unwrap();
+        assert!(
+            Answer::receive(RawMsg {
+                code: Code::ResScreenshot,
+                shm: Some(mmap),
+            })
+            .is_none()
+        );
     }
 }

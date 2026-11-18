@@ -99,7 +99,9 @@ fn main() -> Result<(), String> {
         loop {
             RequestSend::Ping.send(&socket).map_err(|e| e.to_string())?;
             let bytes = socket.recv().map_err(|err| err.to_string())?;
-            let answer = Answer::receive(bytes);
+            let Some(answer) = Answer::receive(bytes) else {
+                return Err("malformed answer from daemon".to_string());
+            };
             if let Answer::Ping(configured) = answer {
                 if configured {
                     break;
@@ -164,7 +166,10 @@ fn process_xwww_args(args: &Xwww, namespace: &str) -> Result<Option<Box<[BgInfo]
     request.send(&socket).map_err(|e| e.to_string())?;
     let bytes = socket.recv().map_err(|err| err.to_string())?;
     drop(socket);
-    match Answer::receive(bytes) {
+    let Some(answer) = Answer::receive(bytes) else {
+        return Err("malformed answer from daemon".to_string());
+    };
+    match answer {
         Answer::Info(infos) => {
             if let Xwww::Query(_) = args {
                 return Ok(Some(infos));
@@ -538,7 +543,9 @@ fn get_format_dims_and_outputs(
         .map_err(|e| e.to_string())?;
     let bytes = socket.recv().map_err(|err| err.to_string())?;
     drop(socket);
-    let answer = Answer::receive(bytes);
+    let Some(answer) = Answer::receive(bytes) else {
+        return Err("malformed answer from daemon".to_string());
+    };
     match answer {
         Answer::Info(infos) => {
             let mut format = ipc::PixelFormat::Argb;
@@ -703,8 +710,9 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     let timeout = Duration::from_millis(run.timeout_ms.max(1));
     let mut engines = Vec::with_capacity(dims.len());
     for (dim, output_group) in dims.iter().zip(&outputs) {
-        let engine = scene::SceneEngine::load(&run.script, dim.0, dim.1, timeout, run.palette.as_deref())?
-            .with_palette_fade(Duration::from_millis(run.palette_fade));
+        let engine =
+            scene::SceneEngine::load(&run.script, dim.0, dim.1, timeout, run.palette.as_deref())?
+                .with_palette_fade(Duration::from_millis(run.palette_fade));
         engines.push((engine, *dim, output_group.clone()));
     }
 
@@ -720,13 +728,10 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
     let start = std::time::Instant::now();
 
     /* Entry transition: only the first frame uses it, and the loop waits for it to finish so
-       the following instant frames do not cut it off. The extra margin covers the time the
-       daemon spends receiving and starting the animation. */
+    the following instant frames do not cut it off. The extra margin covers the time the
+    daemon spends receiving and starting the animation. */
     let entry_transition = make_transition(&run.transition_args());
-    let entry_wait = if matches!(
-        entry_transition.transition_type,
-        ipc::TransitionType::None
-    ) {
+    let entry_wait = if matches!(entry_transition.transition_type, ipc::TransitionType::None) {
         Duration::ZERO
     } else {
         Duration::from_secs_f64(f64::from(run.transition_duration).max(0.0) + 0.25)
@@ -768,7 +773,15 @@ fn run_scene(run: &cli::SceneRun) -> Result<(), String> {
                     [background.r, background.g, background.b],
                 )
             });
-            send_scene_frame(bytes, *dim, format, output_group, &path, namespace, transition)?;
+            send_scene_frame(
+                bytes,
+                *dim,
+                format,
+                output_group,
+                &path,
+                namespace,
+                transition,
+            )?;
 
             // The entry animation only starts once the daemon receives this frame, so the wait
             // is measured from here: rendering and sending a scene frame can take most of the
@@ -841,7 +854,9 @@ fn send_scene_frame(
     RequestSend::Img(builder.build())
         .send(&socket)
         .map_err(|e| e.to_string())?;
-    let answer = Answer::receive(socket.recv().map_err(|e| e.to_string())?);
+    let Some(answer) = Answer::receive(socket.recv().map_err(|e| e.to_string())?) else {
+        return Err("malformed answer from daemon".to_string());
+    };
     match answer {
         Answer::Ok => Ok(()),
         _ => Err("unexpected answer from the daemon".to_string()),

@@ -327,8 +327,8 @@ impl Wallpaper {
                                 let ret = unsafe {
                                     libc::execve(
                                         c"/bin/sh".as_ptr().cast(),
-                                        args.as_ptr() as *const *const libc::c_char,
-                                        environ as *const _ as *const *const libc::c_char,
+                                        args.as_ptr(),
+                                        environ as *const _,
                                     )
                                 };
                                 panic!("execve failed: {}", ret);

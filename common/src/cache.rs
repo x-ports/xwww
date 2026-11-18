@@ -185,7 +185,9 @@ pub fn load_animation_frames<P: Arg>(
                 fs::Mode::RUSR,
             )?;
             let len = rustix::fs::seek(&fd, rustix::fs::SeekFrom::End(0))?;
-            let mmap = Mmap::from_fd(fd, len as usize);
+            let Ok(mmap) = Mmap::from_fd(fd, len as usize) else {
+                continue;
+            };
 
             match Animation::deserialize(&mmap, mmap.slice()) {
                 Some((frames, _)) => return Ok(Some(frames)),

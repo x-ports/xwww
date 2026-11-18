@@ -680,6 +680,10 @@ pub fn make_transition(args: &cli::TransitionArgs) -> ipc::Transition {
         cli::TransitionType::ParallaxInvert => ipc::TransitionType::ParallaxInvert,
         cli::TransitionType::Melt => ipc::TransitionType::Melt,
         cli::TransitionType::Shatter => ipc::TransitionType::Shatter,
+        cli::TransitionType::Ink => ipc::TransitionType::Ink,
+        cli::TransitionType::Paint => ipc::TransitionType::Paint,
+        cli::TransitionType::Contagion => ipc::TransitionType::Contagion,
+        cli::TransitionType::Waterdrop => ipc::TransitionType::Waterdrop,
         cli::TransitionType::Right => {
             angle = 0.0;
             ipc::TransitionType::Wipe
@@ -748,4 +752,46 @@ pub fn make_transition(args: &cli::TransitionArgs) -> ipc::Transition {
 
     common::log::debug!("transition: {transition:#?}");
     transition
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(transition_type: cli::TransitionType) -> cli::TransitionArgs {
+        cli::TransitionArgs {
+            transition_type,
+            transition_step: std::num::NonZeroU8::new(90).unwrap(),
+            transition_duration: 1.0,
+            transition_fps: 30,
+            transition_angle: 45.0,
+            transition_pos: cli::CliPosition::new(
+                cli::CliCoord::Percent(0.5),
+                cli::CliCoord::Percent(0.5),
+            ),
+            transition_bezier: (0.54, 0.0, 0.34, 0.99),
+            transition_wave: (20.0, 20.0),
+            invert_y: false,
+        }
+    }
+
+    #[test]
+    fn maps_new_transition_types() {
+        assert!(matches!(
+            make_transition(&args(cli::TransitionType::Ink)).transition_type,
+            ipc::TransitionType::Ink
+        ));
+        assert!(matches!(
+            make_transition(&args(cli::TransitionType::Paint)).transition_type,
+            ipc::TransitionType::Paint
+        ));
+        assert!(matches!(
+            make_transition(&args(cli::TransitionType::Contagion)).transition_type,
+            ipc::TransitionType::Contagion
+        ));
+        assert!(matches!(
+            make_transition(&args(cli::TransitionType::Waterdrop)).transition_type,
+            ipc::TransitionType::Waterdrop
+        ));
+    }
 }

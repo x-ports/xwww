@@ -186,8 +186,7 @@ impl Mmap {
         };
     }
 
-    #[must_use]
-    pub(crate) fn from_fd(fd: OwnedFd, len: usize) -> Self {
+    pub(crate) fn from_fd(fd: OwnedFd, len: usize) -> io::Result<Self> {
         let ptr = unsafe {
             let ptr = mmap(
                 core::ptr::null_mut(),
@@ -196,18 +195,15 @@ impl Mmap {
                 Self::FLAGS,
                 &fd,
                 0,
-            )
-            .unwrap();
-            // SAFETY: the function above will never return a null pointer if it succeeds
-            // POSIX says that the implementation will never select an address at 0
-            NonNull::new_unchecked(ptr)
+            )?;
+            NonNull::new(ptr).ok_or(Errno::NOMEM)?
         };
-        Self {
+        Ok(Self {
             fd,
             ptr,
             len,
             mmapped: true,
-        }
+        })
     }
 
     #[inline]
@@ -259,42 +255,47 @@ impl<const UTF8: bool> Mmapped<UTF8> {
     const FLAGS: MapFlags = MapFlags::SHARED;
 
     #[must_use]
-    pub(crate) fn new(map: &Mmap, bytes: &[u8]) -> Self {
-        let len = u32::from_ne_bytes(bytes[0..4].try_into().unwrap()) as usize;
-        let bytes = &bytes[4..];
-        Self::new_with_len(map, bytes, len)
+    pub(crate) fn new_checked(map: &Mmap, bytes: &[u8]) -> Option<Self> {
+        let len = u32::from_ne_bytes(bytes.get(0..4)?.try_into().ok()?) as usize;
+        let bytes = bytes.get(4..)?;
+        Self::new_with_len_checked(map, bytes, len)
     }
 
     #[must_use]
-    pub(crate) fn new_with_len(map: &Mmap, bytes: &[u8], len: usize) -> Self {
-        let offset = bytes.as_ptr() as usize - map.ptr.as_ptr() as usize;
+    pub(crate) fn new_with_len_checked(map: &Mmap, bytes: &[u8], len: usize) -> Option<Self> {
+        if bytes.len() < len {
+            return None;
+        }
+
+        let offset = (bytes.as_ptr() as usize).checked_sub(map.ptr.as_ptr() as usize)?;
+        if offset > map.len() || len > map.len() - offset {
+            return None;
+        }
         let page_size = rustix::param::page_size();
         let page_offset = offset - offset % page_size;
+        let map_len = (len + (offset - page_offset)).max(1);
 
         let base_ptr = unsafe {
             let ptr = mmap(
                 core::ptr::null_mut(),
-                len + (offset - page_offset),
+                map_len,
                 Self::PROT,
                 Self::FLAGS,
                 &map.fd,
                 page_offset as u64,
             )
-            .unwrap();
-            // SAFETY: the function above will never return a null pointer if it succeeds
-            // POSIX says that the implementation will never select an address at 0
-            NonNull::new_unchecked(ptr)
+            .ok()?;
+            NonNull::new(ptr)?
         };
         let ptr =
             unsafe { NonNull::new_unchecked(base_ptr.as_ptr().byte_add(offset - page_offset)) };
 
         if UTF8 {
-            // try to parse, panicking if we fail
             let s = unsafe { core::slice::from_raw_parts(ptr.as_ptr().cast(), len) };
-            let _ = core::str::from_utf8(s).expect("received a non utf8 string from socket");
+            core::str::from_utf8(s).ok()?;
         }
 
-        Self { base_ptr, ptr, len }
+        Some(Self { base_ptr, ptr, len })
     }
 
     #[inline]
@@ -317,9 +318,25 @@ impl Mmapped<true> {
 
 impl<const UTF8: bool> Drop for Mmapped<UTF8> {
     fn drop(&mut self) {
-        let len = self.len + self.ptr.as_ptr() as usize - self.base_ptr.as_ptr() as usize;
+        let len = (self.len + self.ptr.as_ptr() as usize - self.base_ptr.as_ptr() as usize).max(1);
         if let Err(e) = unsafe { munmap(self.base_ptr.as_ptr(), len) } {
             log::error!("failed to unmap memory: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_zero_length_strings() {
+        let mut map = Mmap::create(4).unwrap();
+        map.slice_mut().copy_from_slice(&0u32.to_ne_bytes());
+        let text = MmappedStr::new_checked(&map, map.slice()).unwrap();
+        assert_eq!(text.str(), "");
+
+        map.slice_mut().copy_from_slice(&8u32.to_ne_bytes());
+        assert!(MmappedStr::new_checked(&map, map.slice()).is_none());
     }
 }
