@@ -70,8 +70,8 @@ an array of outputs:
 }
 ```
 
-For a solid color, the _displaying_ object contains a _color_ key with a
-`#rrggbb` value instead.
+For a solid color, the _displaying_ object contains a _color_ key whose value
+is a `#rrggbb` string instead.
 
 # SEE ALSO
 *xwww*(1) *xwww-img*(1)
