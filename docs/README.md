@@ -34,7 +34,7 @@ and quick-start instructions.
 | Document | Contents |
 |----------|----------|
 | [Commands](commands.md) | Every `xwww` subcommand and its options. |
-| [Transitions](transitions.md) | All 30 transition effects and their parameters. |
+| [Transitions](transitions.md) | All 34 transition effects and their parameters. |
 | [Image effects](image-effects.md) | `--blur`, `--dim` and `--map-palette`. |
 | [Palette](palette.md) | Extracting dominant colors from an image or wallpaper. |
 | [Scene engine](scene.md) | JavaScript wallpapers: canvas API, palettes and runtime rules. |

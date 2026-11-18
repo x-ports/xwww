@@ -168,6 +168,10 @@ xwww-img
 :- _parallax-invert_
 :- _melt_
 :- _shatter_
+:- _ink_
+:- _paint_
+:- _contagion_
+:- _waterdrop_
 
 	_none_ completes the transition instantly.
 
@@ -222,6 +226,18 @@ xwww-img
 
 	_shatter_ reassembles the image from randomly flying tiles.
 
+	_ink_ spreads the image from several ink blooms with curling edges and a
+	darker wet rim.
+
+	_paint_ paints the image in layers of brush strokes, broad flat color first
+	and finer detail last; *--transition-angle* sets the brush direction.
+
+	_contagion_ lets pixel colonies eat through the old image along ragged,
+	flashing fronts.
+
+	_waterdrop_ drops at *--transition-pos* and reveals the image through
+	refractive, glittering ripples.
+
 	_random_ selects one of _fade_, _wave_, _outer_, _grow_, _glitch_,
 	_decrypt_, _dissolve_, _clock_ or _zoom_ at random, with random shape
 	parameters.
@@ -268,7 +284,8 @@ xwww-img
 *--transition-angle* <degrees>
 	\[Environment Variable: $XWWW_TRANSITION_ANGLE]
 
-	Angle of the wipe for the _wipe_ and _wave_ transitions.
+	Angle of the wipe or brush direction for the _wipe_, _wave_ and _paint_
+	transitions.
 
 	The angle is in degrees, where 0 is right to left, 90 is top to bottom and
 	270 is bottom to top.
@@ -279,7 +296,8 @@ xwww-img
 	\[Environment Variable: $XWWW_TRANSITION_POS]
 
 	Center used by circular and radial transitions such as _grow_, _outer_,
-	_zoom_ and _clock_.
+	_zoom_, _clock_, _ink_, _contagion_ and _waterdrop_. For _ink_ it anchors
+	the main bloom.
 
 	Position values can be given as percentages or pixels: float values are
 	interpreted as percentages and integer values as pixels. For example,

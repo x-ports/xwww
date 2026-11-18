@@ -151,12 +151,14 @@ impl Daemon {
         let bytes = match stream.recv() {
             Ok(bytes) => bytes,
             Err(e) => {
-                error!("FATAL: cannot read socket: {e}. Exiting...");
-                exit_daemon();
+                error!("cannot read socket: {e}");
                 return;
             }
         };
-        let request = RequestRecv::receive(bytes);
+        let Some(request) = RequestRecv::receive(bytes) else {
+            error!("received malformed request");
+            return;
+        };
         let answer = match request {
             RequestRecv::Clear(clear) => {
                 let wallpapers = self.find_wallpapers_by_names(&clear.outputs);
@@ -683,6 +685,7 @@ pub extern "C" fn main(
         Ok(None) => return 0,
         Err(e) => {
             // SAFETY: we only borrow the process stderr for the duration of the write.
+            #[allow(unused_unsafe)]
             let stderr = unsafe { rustix::stdio::stderr() };
             let msg = e.to_string();
             let bufs = [
@@ -957,11 +960,7 @@ pub fn is_daemon_running(namespace: &str) -> Result<bool, IpcError> {
     };
 
     RequestSend::Ping.send(&sock)?;
-    let answer = Answer::receive(sock.recv()?);
-    match answer {
-        Answer::Ping(_) => Ok(true),
-        _ => panic!("Daemon did not return Answer::Ping, as expected"),
-    }
+    Ok(Answer::receive(sock.recv()?).is_some())
 }
 
 /// Converts a daemon canvas buffer (which is stored in a wl_shm-compatible byte order) into a

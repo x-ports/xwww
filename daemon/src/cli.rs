@@ -102,12 +102,14 @@ Options:
     -h|--help     print help
     -V|--version  print version\n";
                     // SAFETY: we only borrow the process stdout for the duration of the write.
+                    #[allow(unused_unsafe)]
                     let stdout = unsafe { rustix::stdio::stdout() };
                     _ = rustix::io::write(stdout, msg);
                     return Ok(None);
                 }
                 b"-V" | b"--version" => {
                     // SAFETY: we only borrow the process stdout for the duration of the write.
+                    #[allow(unused_unsafe)]
                     let stdout = unsafe { rustix::stdio::stdout() };
                     let bufs = [
                         rustix::io::IoSlice::new(b"xwww-daemon "),

@@ -41,7 +41,7 @@ fn current_wallpaper(namespaces: &[String], output: Option<&str>) -> Result<Path
         .send(&socket)
         .map_err(|e| e.to_string())?;
     let bytes = socket.recv().map_err(|e| e.to_string())?;
-    let Answer::Info(infos) = Answer::receive(bytes) else {
+    let Some(Answer::Info(infos)) = Answer::receive(bytes) else {
         return Err("Daemon did not return Info, as expected".to_string());
     };
 

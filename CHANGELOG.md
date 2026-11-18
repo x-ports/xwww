@@ -8,6 +8,7 @@ Entries start at version `0.13.0`; earlier releases predate this changelog.
 <div align="center">
   <a href="README.md">Project README</a> &middot;
   <a href="docs/README.md">Documentation</a> &middot;
+  <a href="#version-0-13-2">0.13.2</a> &middot;
   <a href="#version-0-13-1">0.13.1</a> &middot;
   <a href="#version-0-13-0">0.13.0</a>
 </div>
@@ -15,10 +16,23 @@ Entries start at version `0.13.0`; earlier releases predate this changelog.
 <details open>
 <summary><strong>Releases</strong></summary>
 
+- [0.13.2 - 2026-11-18](#version-0-13-2)
 - [0.13.1 - 2026-10-02](#version-0-13-1)
 - [0.13.0 - 2026-10-02](#version-0-13-0)
 
 </details>
+
+<a id="version-0-13-2" name="version-0-13-2"></a>
+
+## [0.13.2] - 2026-11-18
+
+### Added
+
+- `ink`, `paint`, `contagion` and `waterdrop` transitions.
+
+### Fixed
+
+- Transition validation and malformed IPC handling no longer crash the daemon.
 
 <a id="version-0-13-1" name="version-0-13-1"></a>
 

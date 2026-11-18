@@ -111,8 +111,9 @@ implement that protocol (Hyprland, Sway, niri, River, Wayfire, ...) and does
 - Fills outputs with an arbitrary `rrggbb` color.
 - Applies client-side effects before sending: Gaussian `--blur`, `--dim` and
   palette recoloring with `--map-palette`.
-- Uses 30 transition effects, including wipes, circles, glitch, decrypt,
-  pixelate, ripple, blinds, spiral, static, parallax, melt and shatter.
+- Uses 34 transition effects, including wipes, circles, glitch, decrypt,
+  pixelate, ripple, blinds, spiral, static, parallax, melt, shatter, ink, paint,
+  contagion and waterdrop.
 - Extracts a dominant-color palette from an image or from the current wallpaper
   with `xwww palette`.
 - Cycles wallpapers with `xwww slideshow`, or picks one with `xwww random`.
@@ -313,8 +314,8 @@ The full list, with descriptions and shape parameters, is in
 | `--transition-step` | How far each pixel moves per frame (default `2` for `simple`, `90` otherwise). |
 | `--transition-duration` | Duration in seconds for time-based effects (default `3`). |
 | `--transition-fps` | Frame rate of the transition (default `30`). |
-| `--transition-angle` | Angle for `wipe` and `wave`, in degrees. |
-| `--transition-pos` | Center for circular/radial effects (percent, pixels or a keyword such as `center`). |
+| `--transition-angle` | Angle for `wipe`, `wave` and `paint`, in degrees. |
+| `--transition-pos` | Center for circular/radial effects and the main `ink` bloom (percent, pixels or a keyword such as `center`). |
 | `--transition-bezier` | Bezier curve for `fade` and circle effects. |
 | `--transition-wave` | Wave size for `wave`. |
 | `--invert-y` | Flips the y coordinate of `--transition-pos`. |
